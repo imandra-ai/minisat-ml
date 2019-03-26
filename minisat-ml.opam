@@ -9,9 +9,7 @@ build: [
   ["dune" "runtest" "-p" name] {with-test}
 ]
 depends: [
-  "dune" {build }
-  "iter"
-  "containers"
+  "dune" {build}
   "odoc" {with-doc}
   "qtest" {with-test}
   "qcheck" {with-test}
