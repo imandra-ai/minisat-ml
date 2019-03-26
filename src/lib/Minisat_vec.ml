@@ -27,11 +27,11 @@ module type S = sig
 end
 
 module type ARG = sig
-  type t [@@ocaml.immediate]
+  type t
   val pad : t
 end
 
-module Make(T : ARG)
+module[@inline] Make(T : ARG)
   : S with type elt = T.t
 = struct
 
@@ -92,10 +92,14 @@ module Make(T : ARG)
   let move_to self ~into : unit =
     into.data <- self.data;
     into.sz <- self.sz
-end[@@inline]
+end
+
+module Vec_int = Make(struct type t = int let pad = -1 end)
+module Vec_float = Make(struct type t = float let pad = 0. end)
+module Vec_bool = Make(struct type t = bool let pad = false end)
 
 (*$inject
-  module V = Minisat_vec.Make(struct type t=int let pad= -1 end)
+  module V = Minisat_vec.Vec_int
 *)
 
 (*$R
