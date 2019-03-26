@@ -1,0 +1,23 @@
+opam-version: "2.0"
+version: "0.3.1"
+author: "simon@imandra.ai"
+synopsis: "OCaml reimplementation of Minisat"
+maintainer: "simon@imandra.ai"
+build: [
+  ["dune" "build" "-p" name]
+  ["dune" "build" "@doc" "-p" name] {with-doc}
+  ["dune" "runtest" "-p" name] {with-test}
+]
+depends: [
+  "dune" {build }
+  "iter"
+  "containers"
+  "odoc" {with-doc}
+  "qtest" {with-test}
+  "qcheck" {with-test}
+]
+tags: [ "minisat" "solver" "SAT" ]
+homepage: "https://github.com/AestheticIntegration/minisat-ml/"
+dev-repo: "git+https://github.com/AestheticIntegration/minisat-ml.git"
+bug-reports: "https://github.com/AestheticIntegration/minisat-ml/issues"
+

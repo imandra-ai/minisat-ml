@@ -1,0 +1,7 @@
+
+(executable
+  (name minisat)
+  (modes native)
+  (public_name minisat-ml)
+  (libraries minisat-ml))
+

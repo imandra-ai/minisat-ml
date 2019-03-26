@@ -1,0 +1,5 @@
+.merlin
+*.exe
+_build
+tmp/
+*.log

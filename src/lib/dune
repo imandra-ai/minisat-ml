@@ -1,0 +1,8 @@
+
+(library
+  (name minisat_ml)
+  (public_name minisat-ml)
+  (wrapped false)
+  (inline_tests (backend qtest.lib))
+  (flags (:standard -warn-error -27-32-34))
+  (libraries iter containers))
