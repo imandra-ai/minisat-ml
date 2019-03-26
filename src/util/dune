@@ -1,0 +1,7 @@
+
+(library
+  (name minisat_ml_util)
+  (public_name minisat-ml.util)
+  (flags :standard -warn-error -32-33-34)
+  (libraries bytes unix minisat-ml))
+
