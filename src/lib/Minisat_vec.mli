@@ -23,6 +23,8 @@ val clear_dealloc : 'a t -> unit
 val copy_to : 'a t -> into:'a t -> unit
 val move_to : 'a t -> into:'a t -> unit
 
+val iteri : (int -> 'a -> unit) -> 'a t -> unit
+
 module Internal : sig
   val data : 'a t -> 'a array
 end

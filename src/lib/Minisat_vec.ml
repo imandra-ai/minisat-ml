@@ -57,6 +57,12 @@ let move_to self ~into : unit =
   into.data <- self.data;
   into.sz <- self.sz
 
+let iteri f {data; sz} : unit =
+  assert (sz <= Array.length data);
+  for i=0 to sz-1 do
+    f i (Array.unsafe_get data i)
+  done
+
 module Internal = struct
   let[@inline] data v = v.data
 end
