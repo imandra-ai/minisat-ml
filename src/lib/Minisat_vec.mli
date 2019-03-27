@@ -8,6 +8,7 @@ val size : _ t -> int
 val capacity : _ t -> int
 val ensure : 'a t -> int -> 'a -> unit
 val grow_to : 'a t -> int -> 'a -> unit
+val grow_to_with : 'a t -> int -> (int -> 'a) -> unit
 
 val shrink : _ t -> int -> unit
 val push : 'a t -> 'a -> unit

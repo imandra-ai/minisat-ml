@@ -114,23 +114,29 @@ let read_int_list_list self : _ list list =
   in
   aux []
 
-(* TODO
-let read_clause (self:t) (solver:Solver.t) (lits: Vec_lit.t) : unit =
-  self.var <- 0;
-  self.parsed_lit <- 0;
-  Vec_lit.clear lits;
+let read_clause (self:t) (solver:Solver.t) (lits: Lit.t Vec.t) : unit =
+  Vec.clear lits;
   let rec aux() =
     match parse_int self with
     | exception End_of_file -> ()
     | 0 -> () (* return *)
     | i ->
-      let var = abs i - 1 in
-      while var >= Solver.n_vars solver do Solver.new_var solver done;
-      Vec_lit.push lits (Lit.make_sign var (i>0));
+      let v_idx = abs i - 1 in
+      while v_idx >= Solver.n_vars solver do ignore (Solver.new_var solver:Var.t) done;
+      Vec.push lits (Lit.make_sign (Var.make v_idx) (i>0));
       aux()
   in
   aux()
 
-
-
-   *)
+let parse_dimacs self solver : unit =
+  let v = Vec.make() in
+  let rec loop () =
+    if not @@ eof self then (
+      match skip_metadata self; read_clause self solver v with
+      | () ->
+        let ok = Solver.add_clause solver v in
+        if ok then loop ()
+      | exception End_of_file -> ()
+    )
+  in
+  loop ()

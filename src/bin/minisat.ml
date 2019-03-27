@@ -1,4 +1,6 @@
 
+open Minisat_ml.Solver_types
+
 module Solver = Minisat_ml.Solver
 module System = Minisat_ml_util.System
 module D = Minisat_ml_util.Dimacs
@@ -18,12 +20,12 @@ let print_stats (_solver:Solver.t) : unit =
   ()
 
 let process_ic_ ~verb ic =
-  let b = D.make ic in
-  let cs = D.read_int_list_list b in
-  List.iter (fun c -> Format.printf "@[<h>parse clause %a@]@."
-                (Format.pp_print_list Format.pp_print_int) c) cs;
+  let dparse = D.make ic in
   let solver = Solver.create() in
   Solver.set_verbosity solver verb;
+  D.parse_dimacs dparse solver;
+  let res = Solver.solve solver ~assumps:(Vec.make()) in
+  print_endline (if res then "SAT" else "UNSAT");
   ()
 
 let process_stdin ~verb () : unit =

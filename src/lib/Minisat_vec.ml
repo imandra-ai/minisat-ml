@@ -41,7 +41,17 @@ let grow_to self size pad : unit =
     self.sz <- size;
   )
 
-let[@inline] push self x =
+let grow_to_with self size f : unit =
+  if self.sz < size then (
+    let pad = if Array.length self.data=0 then f 0 else self.data.(0) in
+    ensure self size pad;
+    for i = self.sz to size-1 do
+      self.data.(i) <- f i
+    done;
+    self.sz <- size;
+  )
+
+let push self x =
   if self.sz = Array.length self.data then ensure self (self.sz+1) x;
   Array.unsafe_set self.data self.sz x;
   self.sz <- 1 + self.sz

@@ -20,10 +20,8 @@ val read_int_list : t -> int list
 val read_int_list_list : t -> int list list
 (** Read all clauses as integer lists, for debug purpose *)
 
-(* TODO
-val read_clause : t -> Solver.t -> Vec_lit.t -> unit
+val read_clause : t -> Solver.t -> Lit.t Vec.t -> unit
 
 val parse_dimacs : t -> Solver.t -> unit
-   *)
 
 (* NOTE: we can't really do gzip without a lot of trouble around IO channels *)
