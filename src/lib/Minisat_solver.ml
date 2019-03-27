@@ -102,6 +102,12 @@ type t = {
   mutable progress_estimate: float; (* Set by 'search()'. *)
   mutable remove_satisfied: bool; (* Indicates whether possibly inefficient linear scan for satisfied clauses should be performed in 'simplify'. *)
 
+  model: Vec_lbool.t; (* If problem is satisfiable, this vector contains the model (if any). *)
+  conflict: Vec_lit.t;
+  (* If problem is unsatisfiable (possibly under assumptions),
+     this vector represent the final conflict clause expressed in the
+     assumptions. *)
+
   (* Temporaries (to reduce allocation overhead). Each variable is prefixed by the method in which it is
     used, except 'seen' wich is used in several places.
   *)
@@ -120,3 +126,104 @@ type t = {
 
 (* TODO *)
 
+let add_empty_clause self = self.ok <- false
+
+let[@inline] n_vars self : int = Vec_int.size self.var_level
+
+let new_var_ self ~polarity ~decision : Var.t =
+  let v = n_vars self in
+
+
+  assert false (* TODO *)
+
+let new_var self = new_var_ self ~polarity:false ~decision:true
+let new_var' ?(polarity=false) ?(decision=true) self = new_var_ self ~polarity ~decision
+
+let add_clause self c : bool =
+  assert false (* TODO *)
+
+let set_verbosity self v =
+  assert (v>=0 && v<=2);
+  self.verbosity <- v
+
+let solve_ (self:t) : bool =
+  Vec_lbool.clear self.model;
+  Vec_lit.clear self.conflict;
+  if self.ok then (
+
+    true (* TODO *)
+  ) else false
+
+let create(): t =
+  let s = {
+    verbosity=0;
+    var_decay=0.95;
+    clause_decay=0.999;
+    random_var_freq=0.;
+    random_seed=91648253.;
+    luby_restart=true;
+    ccmin_mode=2;
+    phase_saving=2;
+    rnd_pol=false;
+    rnd_init_act=false;
+    garbage_frac=0.20;
+    restart_first=100;
+    restart_inc=2.;
+    learntsize_factor=(1./.3.);
+    learntsize_inc=1.1;
+    learntsize_adjust_start_confl=100;
+    learntsize_adjust_inc=1.5;
+    solves=0;
+    starts=0;
+    decisions=0;
+    rnd_decisions=0;
+    propagations=0;
+    conflicts=0;
+    dec_vars=0;
+    clause_literals=0;
+    max_literals=0;
+    tot_literals=0;
+
+    ok=false;
+
+    ca=Clause.Alloc.make ();
+    clauses=Vec_cref.make();
+    learnts=Vec_cref.make();
+    cla_inc=1.;
+
+    var_reason=Vec_cref.make();
+    var_level=Vec_int.make();
+    var_act=Vec_float.make();
+    var_inc=1.;
+
+    watches_cref=Vec_cref.make();
+    watches_blocker=Vec_lit.make();
+
+    assigns=Vec_lbool.make();
+    polarity=Vec_bool.make();
+    decision=Vec_bool.make();
+
+    trail=Vec_lit.make();
+    trail_lim=Vec_int.make();
+    qhead=0;
+    simpDB_assigns= -1;
+    simpDB_props=0;
+    assumptions=Vec_lit.make();
+
+    progress_estimate= 0.;
+    remove_satisfied=true;
+
+    model=Vec_lbool.make();
+    conflict=Vec_lit.make();
+    seen=Vec_bool.make();
+    analyze_stack=Vec_lit.make();
+    analyze_toclear=Vec_lit.make();
+    add_tmp=Vec_lit.make();
+
+    max_learnts=0.;
+    learntsize_adjust_confl=0.;
+    learntsize_adjust_cnt =0;
+    conflict_budget= -1;
+    propagation_budget= -1;
+  } in
+  s

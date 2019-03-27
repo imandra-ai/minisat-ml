@@ -3,13 +3,17 @@ open Minisat_types
 
 type t
 
-(* TODO
+val create : unit -> t
+
+val set_verbosity : t -> int -> unit
+
 val new_var : t -> Var.t
 val new_var' : ?polarity:bool -> ?decision:bool -> t -> Var.t
 
 val add_clause : t -> Vec_lit.t -> bool
 val add_empty_clause : t -> unit
 
+(* TODO
 val simplify : t -> bool
 
 val solve : t -> assumps:Vec_lit.t -> bool
