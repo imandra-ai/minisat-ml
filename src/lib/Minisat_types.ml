@@ -2,9 +2,7 @@
 (* magic for casting from bool to int *)
 external __int_of_bool : bool -> int = "%identity"
 
-module Vec_int = Minisat_vec.Vec_int
-module Vec_float = Minisat_vec.Vec_float
-module Vec_bool = Minisat_vec.Vec_bool
+module Vec = Minisat_vec
 
 module Var : sig
   type t = private int [@@ocaml.immediate]
@@ -25,8 +23,6 @@ end = struct
   let undef = -1
   let pad = undef
 end
-
-module Vec_var = Minisat_vec.Make(Var)
 
 module Lit : sig
   type t = private int
@@ -63,8 +59,6 @@ end = struct
   let error = -1
   let pad = undef
 end
-
-module Vec_lit = Minisat_vec.Make(Lit)
 
 module Lbool : sig
   type t = private int
@@ -116,8 +110,6 @@ end = struct
     if equal x true_ then "true" else if equal x false_ then "false"
     else if equal x undef then "undef" else assert false
 end
-
-module Vec_lbool = Minisat_vec.Make(Lbool)
 
 (*$= & ~cmp:Lbool.equal ~printer:Lbool.to_string
   Lbool.undef Lbool.(not undef)
@@ -325,8 +317,6 @@ end = struct
     set_header c_alloc c_r (Header.set_reloced c_h);
     set_data_ c_alloc c_r 0 into (* first lit --> into *)
 end
-
-module Vec_cref = Minisat_vec.Make(struct type t = Clause.cref let pad = Clause.undef end)
 
 (*$inject
   module CH = Clause.Header

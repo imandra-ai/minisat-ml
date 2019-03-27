@@ -68,33 +68,33 @@ type t = {
   mutable ok: bool;
 
   ca: Clause.Alloc.t;
-  clauses: Vec_cref.t; (* problem clauses *)
-  learnts: Vec_cref.t; (* learnt clauses *)
+  clauses: Clause.cref Vec.t; (* problem clauses *)
+  learnts: Clause.cref Vec.t; (* learnt clauses *)
 
   mutable cla_inc: float; (* Amount to bump next clause with. *)
 
-  var_reason: Vec_cref.t; (* reason for the propagation of a variable *)
-  var_level: Vec_int.t; (* decision level of variable *)
-  var_act: Vec_float.t; (* A heuristic measurement of the activity of a variable. *)
+  var_reason: Clause.cref Vec.t; (* reason for the propagation of a variable *)
+  var_level: int Vec.t; (* decision level of variable *)
+  var_act: float Vec.t; (* A heuristic measurement of the activity of a variable. *)
 
   mutable var_inc: float; (* Amount to bump next variable with. *)
 
   (* watch list *)
-  watches_cref : Vec_cref.t;
-  watches_blocker: Vec_lit.t;
+  watches_cref : Clause.cref Vec.t;
+  watches_blocker: Lit.t Vec.t;
 
-  assigns: Vec_lbool.t; (* The current assignments. *)
-  polarity: Vec_bool.t; (* The preferred polarity of each variable. *)
-  decision: Vec_bool.t; (* Declares if a variable is eligible for selection in the decision heuristic. *)
+  assigns: Lbool.t Vec.t; (* The current assignments. *)
+  polarity: bool Vec.t; (* The preferred polarity of each variable. *)
+  decision: bool Vec.t; (* Declares if a variable is eligible for selection in the decision heuristic. *)
 
-  trail: Vec_lit.t; (* Assignment stack; stores all assigments made in the order they were made. *)
-  trail_lim: Vec_int.t; (* Separator indices for different decision levels in 'trail'. *)
+  trail: Lit.t Vec.t; (* Assignment stack; stores all assigments made in the order they were made. *)
+  trail_lim: int Vec.t; (* Separator indices for different decision levels in 'trail'. *)
 
   mutable qhead: int; (* Head of queue (as index into the trail) *)
 
   mutable simpDB_assigns: int; (* Number of top-level assignments since last execution of 'simplify()'. *)
   mutable simpDB_props : int; (* Remaining number of propagations that must be made before next execution of 'simplify()'. *)
-  assumptions: Vec_lit.t; (* Current set of assumptions provided to solve by the user. *)
+  assumptions: Lit.t Vec.t; (* Current set of assumptions provided to solve by the user. *)
 
   (* TODO:
     Heap<VarOrderLt>    order_heap;       // A priority queue of variables ordered with respect to the variable activity.
@@ -102,8 +102,8 @@ type t = {
   mutable progress_estimate: float; (* Set by 'search()'. *)
   mutable remove_satisfied: bool; (* Indicates whether possibly inefficient linear scan for satisfied clauses should be performed in 'simplify'. *)
 
-  model: Vec_lbool.t; (* If problem is satisfiable, this vector contains the model (if any). *)
-  conflict: Vec_lit.t;
+  model: Lbool.t Vec.t; (* If problem is satisfiable, this vector contains the model (if any). *)
+  conflict: Lit.t Vec.t;
   (* If problem is unsatisfiable (possibly under assumptions),
      this vector represent the final conflict clause expressed in the
      assumptions. *)
@@ -111,10 +111,10 @@ type t = {
   (* Temporaries (to reduce allocation overhead). Each variable is prefixed by the method in which it is
     used, except 'seen' wich is used in several places.
   *)
-  seen: Vec_bool.t;
-  analyze_stack: Vec_lit.t;
-  analyze_toclear: Vec_lit.t;
-  add_tmp: Vec_lit.t;
+  seen: bool Vec.t;
+  analyze_stack: Lit.t Vec.t;
+  analyze_toclear: Lit.t Vec.t;
+  add_tmp: Lit.t Vec.t;
 
   mutable max_learnts: float;
   mutable learntsize_adjust_confl : float;
@@ -128,10 +128,10 @@ type t = {
 
 let add_empty_clause self = self.ok <- false
 
-let[@inline] n_vars self : int = Vec_int.size self.var_level
+let[@inline] n_vars self : int = Vec.size self.var_level
 
 let new_var_ self ~polarity ~decision : Var.t =
-  let v = n_vars self in
+  let _v = n_vars self in
 
 
   assert false (* TODO *)
@@ -147,8 +147,8 @@ let set_verbosity self v =
   self.verbosity <- v
 
 let solve_ (self:t) : bool =
-  Vec_lbool.clear self.model;
-  Vec_lit.clear self.conflict;
+  Vec.clear self.model;
+  Vec.clear self.conflict;
   if self.ok then (
 
     true (* TODO *)
@@ -187,38 +187,38 @@ let create(): t =
     ok=false;
 
     ca=Clause.Alloc.make ();
-    clauses=Vec_cref.make();
-    learnts=Vec_cref.make();
+    clauses=Vec.make();
+    learnts=Vec.make();
     cla_inc=1.;
 
-    var_reason=Vec_cref.make();
-    var_level=Vec_int.make();
-    var_act=Vec_float.make();
+    var_reason=Vec.make();
+    var_level=Vec.make();
+    var_act=Vec.make();
     var_inc=1.;
 
-    watches_cref=Vec_cref.make();
-    watches_blocker=Vec_lit.make();
+    watches_cref=Vec.make();
+    watches_blocker=Vec.make();
 
-    assigns=Vec_lbool.make();
-    polarity=Vec_bool.make();
-    decision=Vec_bool.make();
+    assigns=Vec.make();
+    polarity=Vec.make();
+    decision=Vec.make();
 
-    trail=Vec_lit.make();
-    trail_lim=Vec_int.make();
+    trail=Vec.make();
+    trail_lim=Vec.make();
     qhead=0;
     simpDB_assigns= -1;
     simpDB_props=0;
-    assumptions=Vec_lit.make();
+    assumptions=Vec.make();
 
     progress_estimate= 0.;
     remove_satisfied=true;
 
-    model=Vec_lbool.make();
-    conflict=Vec_lit.make();
-    seen=Vec_bool.make();
-    analyze_stack=Vec_lit.make();
-    analyze_toclear=Vec_lit.make();
-    add_tmp=Vec_lit.make();
+    model=Vec.make();
+    conflict=Vec.make();
+    seen=Vec.make();
+    analyze_stack=Vec.make();
+    analyze_toclear=Vec.make();
+    add_tmp=Vec.make();
 
     max_learnts=0.;
     learntsize_adjust_confl=0.;
