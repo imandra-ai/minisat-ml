@@ -161,6 +161,7 @@ module Clause : sig
     val make : ?start:int -> unit -> t 
     val wasted : t -> int
     val alloc : t -> Lit.t Vec.t -> learnt:bool -> Cref.t
+    val free : t -> Cref.t -> unit
     val move_to : t -> into:t -> unit
   end
 
@@ -180,6 +181,8 @@ module Clause : sig
   val lit : Alloc.t -> Cref.t -> int -> Lit.t
   val activity : Alloc.t -> Cref.t -> float
   val set_activity : Alloc.t -> Cref.t -> float -> unit
+  val mark : Alloc.t -> Cref.t -> int
+  val set_mark : Alloc.t -> Cref.t -> int -> unit (* 2 bits *)
 
   val lits_a : Alloc.t -> Cref.t -> Lit.t array
 
@@ -311,7 +314,12 @@ end = struct
       );
       cr
 
-    let[@inline] free self size : unit = self.wasted <- size + self.wasted
+    let[@inline] free_ self size : unit = self.wasted <- size + self.wasted
+
+    let free self (c:Cref.t) : unit =
+      let h = self.memory.(c) in
+      let size = 1 + Header.size h + (__int_of_bool (Header.has_extra h)) in
+      free_ self size
 
     let move_to self ~into : unit =
       into.memory <- self.memory;
@@ -351,13 +359,18 @@ end = struct
 
   let[@inline] lit a (c:Cref.t) i : Lit.t = Lit.Internal.of_int (get_data_ a c i)
 
-  let[@inline] activity a (c:Cref.t): float =
+  let activity a (c:Cref.t): float =
     let idx = extra_data_ a c in
     a.act.(idx)
 
-  let[@inline] set_activity a (c:Cref.t) (f:float) : unit =
+  let set_activity a (c:Cref.t) (f:float) : unit =
     let idx = extra_data_ a c in
     a.act.(idx) <- f
+
+  let[@inline] mark a c : int = Header.mark (header a c)
+  let set_mark a c m : unit =
+    let h = header a c in
+    set_header a c (Header.set_mark m h)
 
   (* obtain literals *)
   let lits_a a c =

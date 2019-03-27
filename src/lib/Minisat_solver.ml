@@ -143,9 +143,12 @@ let[@inline] decision_level self : int = Vec.size self.trail_lim
 
 let[@inline] level_var self (v:Var.t) : int = Vec.get self.var_level (v:>int)
 let[@inline] level_lit self (x:Lit.t) : int = level_var self (Lit.var x)
-    
+
 let[@inline] value_var self (v:Var.t) : Lbool.t = Vec.get self.assigns (v:>int)
 let[@inline] value_lit self (x:Lit.t) : Lbool.t = Lbool.xor (value_var self (Lit.var x)) (Lit.sign x)
+
+let[@inline] reason_var self (v:Var.t) : Cref.t = Vec.get self.var_reason (v:>int)
+let[@inline] reason_lit self (x:Lit.t) : Cref.t = reason_var self (Lit.var x)
 
 let[@inline] abstract_level self (v:Var.t) : int =
   1 lsl (level_var self v land 31)
@@ -171,10 +174,46 @@ let insert_var_order self (v:Var.t) : unit =
     Heap.insert self.order_heap (v:>int)
   )
 
-let[@inline] watch_blocker_ self (lit:Lit.t) : _ Vec.t =
-  Vec.get self.watches_blocker (lit:>int)
-let[@inline] watch_cref_ self (lit:Lit.t) : _ Vec.t =
-  Vec.get self.watches_cref (lit:>int)
+module Watch = struct
+  type nonrec t = t
+  let[@inline] blocker_ self (lit:Lit.t) : _ Vec.t =
+    Vec.get self.watches_blocker (lit:>int)
+  let[@inline] cref_ self (lit:Lit.t) : _ Vec.t =
+    Vec.get self.watches_cref (lit:>int)
+
+  let smudge self (lit:Lit.t) : unit =
+    let i = (lit:>int) in
+    if not (Vec.get self.watches_dirty i) then (
+      Vec.set self.watches_dirty i true;
+      Vec.push self.watches_dirties lit;
+    )
+
+  (*
+  template<class Idx, class Vec, class Deleted>
+  void OccLists<Idx,Vec,Deleted>::cleanAll()
+  {
+      for (int i = 0; i < dirties.size(); i++)
+          // Dirties may contain duplicates so check here if a variable is already cleaned:
+          if (dirty[toInt(dirties[i])])
+              clean(dirties[i]);
+      dirties.clear();
+  }
+
+
+  template<class Idx, class Vec, class Deleted>
+  void OccLists<Idx,Vec,Deleted>::clean(const Idx& idx)
+  {
+      Vec& vec = occs[toInt(idx)];
+      int  i, j;
+      for (i = j = 0; i < vec.size(); i++)
+          if (!deleted(vec[i]))
+              vec[j++] = vec[i];
+      vec.shrink(i - j);
+      dirty[toInt(idx)] = 0;
+  }
+     *)
+
+end
 
 let watch_init_ self (lit:Lit.t) : unit =
   let i = (lit:>int) in
@@ -236,15 +275,35 @@ let attach_clause (self:t) (c:Cref.t) : unit =
   assert (CH.size h > 1);
   let c0 = Clause.lit self.ca c 0 in
   let c1 = Clause.lit self.ca c 1 in
-  Vec.push (watch_blocker_ self (Lit.not c0)) c1;
-  Vec.push (watch_cref_ self (Lit.not c0)) c;
-  Vec.push (watch_blocker_ self (Lit.not c1)) c0;
-  Vec.push (watch_cref_ self (Lit.not c1)) c;
+  Vec.push (Watch.blocker_ self (Lit.not c0)) c1;
+  Vec.push (Watch.cref_ self (Lit.not c0)) c;
+  Vec.push (Watch.blocker_ self (Lit.not c1)) c0;
+  Vec.push (Watch.cref_ self (Lit.not c1)) c;
   if CH.learnt h then (
     self.learnt_literals <- CH.size h + self.learnt_literals;
   ) else (
     self.clause_literals <- CH.size h + self.clause_literals;
   )
+
+let detach_clause_ (self:t) ~strict (c:Cref.t) : unit =
+  let h = Clause.header self.ca c in
+  assert (CH.size h > 1);
+  let c0 = Clause.lit self.ca c 0 in
+  let c1 = Clause.lit self.ca c 1 in
+  if strict then (
+    assert false (* NOTE: not used internally outside of Simp, and requires eager removal *)
+  ) else (
+    (* Lazy detaching: *)
+    Watch.smudge self (Lit.not c0);
+    Watch.smudge self (Lit.not c1);
+  );
+  if CH.learnt h then (
+    self.learnt_literals <- self.learnt_literals - (CH.size h)
+  ) else (
+    self.clause_literals <- self.clause_literals - (CH.size h)
+  )
+
+let[@inline] detach_clause self c : unit = detach_clause_ self ~strict:false c
 
 (* perform boolean propagation.
    if a conflict is detected, return the conflict clause's ref,
@@ -298,6 +357,20 @@ let add_clause self (ps:Lit.t Vec.t) : bool =
   with
   | Early_return_true -> true
   | Early_return_false -> false
+
+(* is the clause locked (is it the reason a literal is propagated)? *)
+let locked self (c:Cref.t) : bool =
+  let c0 = Clause.lit self.ca c 0 in
+  Lbool.equal Lbool.true_ (value_var self (Lit.var c0)) &&
+  c = reason_var self (Lit.var c0)
+
+let remove_clause self (c:Cref.t) : unit =
+  detach_clause self c;
+  if locked self c then (
+    Vec.set self.var_reason ((Lit.var (Clause.lit self.ca c 0)):>int) Cref.undef;
+  );
+  Clause.set_mark self.ca c 1;
+  Clause.Alloc.free self.ca c
 
 let simplify _self : bool =
   Printf.printf "simplify\n";
