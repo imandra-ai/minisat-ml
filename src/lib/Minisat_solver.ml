@@ -22,6 +22,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 open Minisat_types
 
 module CH = Clause.Header
+module Heap = Minisat_heap.Make(Var)
 
 (* Returns a random float 0 <= x < 1. Seed must never be 0. *)
 let drand (seed: float ref) : float =
@@ -170,8 +171,8 @@ let add_empty_clause self = self.ok <- false
 let[@inline] decision self v = Vec.get self.decision (v:Var.t:>int)
 
 let insert_var_order self (v:Var.t) : unit =
-  if not (Heap.in_heap self.order_heap (v:>int)) && decision self v then (
-    Heap.insert self.order_heap (v:>int)
+  if not (Heap.in_heap self.order_heap v) && decision self v then (
+    Heap.insert self.order_heap v
   )
 
 module Watch = struct
@@ -265,9 +266,6 @@ let[@inline] enqueue self (p:Lit.t) (from:Cref.t) : bool =
     not (Lbool.equal Lbool.false_ v)
   )
 
-exception Early_return_true
-exception Early_return_false
-
 let attach_clause (self:t) (c:Cref.t) : unit =
   Printf.printf "attach clause %d\n" c;
   Array.iter (fun lit -> Printf.printf "  %d\n" (Lit.to_int lit)) (Clause.lits_a self.ca c);
@@ -304,6 +302,59 @@ let detach_clause_ (self:t) ~strict (c:Cref.t) : unit =
   )
 
 let[@inline] detach_clause self c : unit = detach_clause_ self ~strict:false c
+
+let cancel_until self (level:int) : unit =
+  if decision_level self > level then (
+    Printf.printf "cancel-until %d\n" level;
+    let offset = Vec.get self.trail_lim level in
+    for c = Vec.size self.trail-1 downto offset do
+      let lit_c = Vec.get self.trail c in
+      let v = Lit.var lit_c in
+      Vec.set self.assigns (v:>int) Lbool.undef;
+      if self.phase_saving>1 ||
+         (self.phase_saving=1 && c > Vec.last self.trail_lim) then (
+        (* save phase *)
+        Vec.set self.polarity (v:>int) (Lit.sign lit_c);
+      );
+      insert_var_order self v;
+    done;
+    self.qhead <- offset;
+    Vec.shrink self.trail offset;
+    Vec.shrink self.trail_lim level;
+  )
+
+let pick_branch_lit self : Lit.t =
+  let next =
+    (* random pick? *)
+    if self.random_var_freq > 0. &&
+       drand self.random_seed < self.random_var_freq &&
+       not (Heap.empty self.order_heap) then (
+      let v = Heap.get self.order_heap
+          (irand self.random_seed (Heap.size self.order_heap)) in
+      if Lbool.equal Lbool.undef (value_var self v) &&
+         Vec.get self.decision (v:>int) then (
+        self.rnd_decisions <- 1 + self.rnd_decisions;
+      );
+      v
+    ) else Var.undef
+  in
+  let rec loop next =
+    if Var.equal Var.undef next ||
+       not (Lbool.equal Lbool.undef (value_var self next)) ||
+       not (Vec.get self.decision (next:>int)) then (
+
+      if Heap.empty self.order_heap then Var.undef
+      else loop (Heap.remove_min self.order_heap)
+    ) else next
+  in
+  let next = loop next in
+  if Var.equal Var.undef next then (
+    Lit.undef
+  ) else (
+    Lit.make_sign next
+      (if self.rnd_pol then drand self.random_seed < 0.5
+       else Vec.get self.polarity (next:>int))
+  )
 
 (* perform boolean propagation.
    if a conflict is detected, return the conflict clause's ref,
@@ -365,12 +416,16 @@ let locked self (c:Cref.t) : bool =
   c = reason_var self (Lit.var c0)
 
 let remove_clause self (c:Cref.t) : unit =
+  Printf.printf "remove clause %d\n" c;
   detach_clause self c;
   if locked self c then (
     Vec.set self.var_reason ((Lit.var (Clause.lit self.ca c 0)):>int) Cref.undef;
   );
   Clause.set_mark self.ca c 1;
   Clause.Alloc.free self.ca c
+
+let satisfied self (c:Cref.t) : bool =
+  Clause.exists self.ca c (fun lit -> Lbool.equal Lbool.true_ (value_lit self lit))
 
 let simplify _self : bool =
   Printf.printf "simplify\n";
@@ -398,7 +453,8 @@ let create(): t =
   (* heap of variables, ordered by activity (higher activity comes first) *)
   let order_heap =
     Heap.make
-      ~cmp:(fun v1 v2 -> compare (Vec.get var_act v2) (Vec.get var_act v1))
+      ~cmp:(fun v1 v2 ->
+          compare (Vec.get var_act (v2:>int)) (Vec.get var_act (v1:>int)))
   in
   let s = {
     verbosity=0;

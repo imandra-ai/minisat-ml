@@ -3,7 +3,6 @@
 external __int_of_bool : bool -> int = "%identity"
 
 module Vec = Minisat_vec
-module Heap = Minisat_heap
 module Sort = Minisat_sort
 
 module Var : sig
@@ -11,19 +10,25 @@ module Var : sig
 
   val make : int -> t
   val undef : t
+  val equal : t -> t -> bool
   val to_int : t -> int
   val to_int_a : t array -> int array
 
   (**/**)
-  val __make_unsafe : int -> t
+  module Internal : sig
+    val of_int : int -> t
+  end
   (**/**)
 end = struct
   type t = int
-  let[@inline] __make_unsafe x = x
   let[@inline] make x = assert (x>=0); x
   let[@inline] to_int x = x
   let[@inline] to_int_a x = x
+  let[@inline] equal (x:t) y = x=y
   let undef = -1
+  module Internal = struct
+    let[@inline] of_int x = x
+  end
 end
 
 module Lit : sig
@@ -57,7 +62,7 @@ end = struct
   let[@inline] not x = x lxor 1
   let[@inline] xor x b = x lxor (__int_of_bool b)
   let[@inline] sign x = (x land 1) <> 0
-  let[@inline] var x = Var.__make_unsafe (x lsr 1)
+  let[@inline] var x = Var.Internal.of_int (x lsr 1)
   let[@inline] to_int x = x
   let[@inline] to_int_a x = x
   let undef = -2
@@ -155,6 +160,9 @@ end = struct
   let is_undef c = c=undef
 end
 
+exception Early_return_true
+exception Early_return_false
+
 module Clause : sig
   module Alloc : sig
     type t
@@ -185,6 +193,8 @@ module Clause : sig
   val set_mark : Alloc.t -> Cref.t -> int -> unit (* 2 bits *)
 
   val lits_a : Alloc.t -> Cref.t -> Lit.t array
+  val exists : Alloc.t -> Cref.t -> (Lit.t -> bool) -> bool
+  val for_all : Alloc.t -> Cref.t -> (Lit.t -> bool) -> bool
 
   val reloced : Alloc.t -> Cref.t -> bool
   val relocation : Alloc.t -> Cref.t -> Cref.t
@@ -376,6 +386,24 @@ end = struct
   let lits_a a c =
     let h = header a c in
     Lit.Internal.of_int_a (Array.sub a.memory (c+1) (Header.size h))
+
+  let for_all a c f : bool =
+    let h = header a c in
+    try
+      for i = 0 to Header.size h - 1 do
+        if not (f (lit a c i)) then raise_notrace Early_return_false
+      done;
+      true
+    with Early_return_false -> false
+
+  let exists a c f : bool =
+    let h = header a c in
+    try
+      for i = 0 to Header.size h - 1 do
+        if f (lit a c i) then raise_notrace Early_return_true
+      done;
+      false
+    with Early_return_true -> true
 
   let[@inline] reloced a c = Header.reloced (header a c)
   let[@inline] relocation a c : Cref.t = get_data_ a c 0
