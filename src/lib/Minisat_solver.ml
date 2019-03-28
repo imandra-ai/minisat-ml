@@ -356,12 +356,140 @@ let pick_branch_lit self : Lit.t =
        else Vec.get self.polarity (next:>int))
   )
 
-(* perform boolean propagation.
-   if a conflict is detected, return the conflict clause's ref,
-   otherwise [Cref.undef] *)
+let watch_clear self : unit =
+  Vec.clear_dealloc self.watches_blocker;
+  Vec.clear_dealloc self.watches_cref;
+  Vec.clear_dealloc self.watches_dirties;
+  Vec.clear_dealloc self.watches_dirty;
+  ()
+
+let watch_clean self (p:Lit.t) : unit =
+  let p_idx = (p:>int) in
+  let ws_b = Vec.get self.watches_blocker p_idx in
+  let ws_c = Vec.get self.watches_cref p_idx in
+  let j = ref 0 in
+  for i=0 to Vec.size ws_c do
+    let c = Vec.get ws_c i in
+    if Clause.mark self.ca c <> 1 then (
+      (* not deleted, keep *)
+      Vec.set ws_c !j c;
+      Vec.set ws_b !j (Vec.get ws_b i);
+    )
+  done;
+  Vec.shrink ws_b !j;
+  Vec.shrink ws_c !j;
+  Vec.set self.watches_dirty p_idx false;
+  ()
+
+let watch_clean_all self : unit =
+  Printf.printf "watch clean all\n";
+  Vec.iteri
+    (fun _ (p:Lit.t) ->
+       (* Dirties may contain duplicates so check here if a variable is already cleaned: *)
+       if Vec.get self.watches_dirty (p:>int) then (
+         watch_clean self p
+       ))
+    self.watches_dirties;
+  Vec.clear self.watches_dirties
+
+(* Description:
+   Propagates all enqueued facts. If a conflict arises, the conflicting clause is returned,
+   otherwise [Cref.undef].
+   
+   Post-conditions:
+     * the propagation queue is empty, even if there was a conflict.
+*)
 let propagate (self:t) : Cref.t =
   Printf.printf "propagate\n";
-  assert false (* TODO *)
+  watch_clean_all self;
+  let confl = ref Cref.undef in
+  while self.qhead < Vec.size self.trail do
+    let p = Vec.get self.trail self.qhead in
+    self.qhead <- self.qhead + 1;
+    self.propagations <- 1 + self.propagations;
+    self.simpDB_props <- self.simpDB_props - 1;
+
+    let ws_b = Vec.get self.watches_blocker (p:>int) in
+    let ws_c = Vec.get self.watches_cref (p:>int) in
+    let n = Vec.size ws_b in
+    assert (n = Vec.size ws_c);
+
+    (* traverse watch list with index [i]. [j <= i] is position of last
+       alive watch. *)
+    let rec loop1 i j =
+      if i=n then (
+        Vec.shrink ws_b j;
+        Vec.shrink ws_c j;
+      ) else (
+        let blocker = Vec.get ws_b i in
+        if Lbool.equal Lbool.true_ (value_lit self blocker) then (
+          (* avoid inspecting the clause if blocker lit is true *)
+          loop1 (i+1) (j+1)
+        ) else (
+          let c = Vec.get ws_c i in
+          let ch = Clause.header self.ca c in
+          let false_lit = Lit.not p in
+
+          (* ensure that [false_lit] is second in the clause *)
+          if Lit.equal false_lit (Clause.lit self.ca c 0) then (
+            Clause.swap_lits self.ca c 0 1;
+          );
+          assert (Lit.equal false_lit (Clause.lit self.ca c 1));
+          let i = i+1 in
+
+          let first = Clause.lit self.ca c 0 in
+          if not (Lit.equal blocker first) &&
+             Lbool.equal Lbool.true_ (value_lit self first) then (
+            (* If 0th watch is true, then clause is already satisfied. *)
+            Vec.set ws_b j first;
+            Vec.set ws_c j c;
+            loop1 i (j+1);
+          ) else (
+            (* Look for new watch: *)
+            let rec find_w k =
+              if k = CH.size ch then false
+              else (
+                let ck = Clause.lit self.ca c k in
+                if Lbool.equal Lbool.false_ (value_lit self ck) then (
+                  find_w (k+1) (* nope *)
+                ) else (
+                  (* [k]-th lit is the new watch *)
+                  Clause.swap_lits self.ca c 1 k;
+                  Vec.push (Vec.get self.watches_blocker ((Lit.not ck):>int)) first;
+                  Vec.push (Vec.get self.watches_cref ((Lit.not ck):>int)) c;
+                  true
+                )
+              )
+            in
+            let found_watch = find_w 2 in
+            if found_watch then (
+              loop1 i j (* not a watch anymore, remove from list *)
+            ) else (
+              (* Did not find watch -- clause is unit under assignment: *)
+              Vec.push ws_b first;
+              Vec.push ws_c c;
+              let j = j+1 in
+
+              if Lbool.equal Lbool.false_ (value_lit self first) then (
+                (* conflict *)
+                confl := c;
+                self.qhead <- Vec.size self.trail;
+                (* Copy the remaining watches: *)
+                Vec.blit ws_b i ws_b j (n-i);
+                Vec.blit ws_c i ws_c j (n-i);
+              ) else (
+                (* propagate [first] *)
+                unchecked_enqueue self first c;
+                loop1 i j
+              )
+            )
+          )
+        )
+      )
+    in
+    loop1 0 0;
+  done;
+  !confl
 
 let add_clause self (ps:Lit.t Vec.t) : bool =
   Printf.printf "add clause\n";
@@ -423,6 +551,10 @@ let remove_clause self (c:Cref.t) : unit =
   );
   Clause.set_mark self.ca c 1;
   Clause.Alloc.free self.ca c
+
+let reduce_db self : unit =
+  Printf.printf "reduce-db\n";
+  () (* TODO *)
 
 let var_bump_activity self (v:Var.t) : unit =
   Printf.printf "var bump activity\n";
@@ -621,9 +753,32 @@ let analyze_final self (p:Lit.t) (out_conflict: Lit.t Vec.t) : unit =
 let satisfied self (c:Cref.t) : bool =
   Clause.exists self.ca c (fun lit -> Lbool.equal Lbool.true_ (value_lit self lit))
 
+(* remove satisfied clauses from the given vector *)
+let remove_satisfied self (cs:Cref.t Vec.t) : unit =
+  let j = ref 0 in
+  for i = 0 to Vec.size cs-1 do
+    let c = Vec.get cs i in
+    if satisfied self c then (
+      remove_clause self c
+    ) else (
+      Vec.set cs !j c;
+      j := !j + 1;
+    )
+  done;
+  Vec.shrink cs !j
+
+let rebuild_order_heap self : unit =
+  let vs = Vec.make() in
+  for v_i=0 to n_vars self-1 do
+    let v = Var.Internal.of_int v_i in
+    if Vec.get self.decision v_i && Lbool.equal Lbool.undef (value_var self v)
+    then Vec.push vs v
+  done;
+  Heap.build self.order_heap vs
+
 let simplify _self : bool =
   Printf.printf "simplify\n";
-  assert false (* TODO *)
+  true (* TODO *)
 
 let solve_ (self:t) : Lbool.t =
   Printf.printf "solve\n";

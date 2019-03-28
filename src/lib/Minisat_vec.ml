@@ -60,6 +60,10 @@ let push self x =
 let[@inline] last self = assert(self.sz>0); get self (self.sz-1)
 let[@inline] pop self : unit = assert(self.sz>0); self.sz <- self.sz - 1
 
+let blit v1 i1 v2 i2 len =
+  assert (i1+len <= v1.sz && i2+len <= v2.sz);
+  Array.blit v1.data i1 v2.data i2 len
+
 let copy_to self ~into : unit =
   into.data <- Array.sub self.data 0 self.sz;
   into.sz <- self.sz

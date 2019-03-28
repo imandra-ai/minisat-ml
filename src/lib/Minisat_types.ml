@@ -195,6 +195,7 @@ module Clause : sig
   val set_mark : Alloc.t -> Cref.t -> int -> unit (* 2 bits *)
 
   val lits_a : Alloc.t -> Cref.t -> Lit.t array
+  val swap_lits: Alloc.t -> Cref.t -> int -> int -> unit
   val exists : Alloc.t -> Cref.t -> (Lit.t -> bool) -> bool
   val for_all : Alloc.t -> Cref.t -> (Lit.t -> bool) -> bool
 
@@ -388,6 +389,13 @@ end = struct
   let lits_a a c =
     let h = header a c in
     Lit.Internal.of_int_a (Array.sub a.memory (c+1) (Header.size h))
+
+  let swap_lits a c i j =
+    if i<>j then (
+      let tmp = get_data_ a c i in
+      set_data_ a c i (get_data_ a c j);
+      set_data_ a c j tmp;
+    )
 
   let[@specialise] for_all a c f : bool =
     let h = header a c in
