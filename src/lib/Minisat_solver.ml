@@ -472,12 +472,12 @@ let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
    Analyze conflict and produce a reason clause.
  
    Pre-conditions:
-     * 'out_learnt' is assumed to be cleared.
+     * `out_learnt` is assumed to be cleared.
      * Current decision level must be greater than root level.
  
    Post-conditions:
-     * 'out_learnt[0]' is the asserting literal at level 'out_btlevel'.
-     * If out_learnt.size() > 1 then 'out_learnt[1]' has the greatest decision level of the 
+     * `out_learnt[0]` is the asserting literal at level `out_btlevel`.
+     * If out_learnt.size() > 1 then `out_learnt[1]` has the greatest decision level of the 
        rest of literals. There may be others from the same level though.
  *)
 let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
@@ -580,6 +580,42 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
     Vec.set out_learnt !max_i (Vec.get out_learnt 1);
     Vec.set out_learnt 1 p;
     level_lit self p
+  )
+
+(* Description:
+   Specialized analysis procedure to express the final conflict in terms of assumptions.
+   Calculates the (possibly empty) set of assumptions that led to the assignment of `p`, and
+   stores the result in `out_conflict`.
+*)
+let analyze_final self (p:Lit.t) (out_conflict: Lit.t Vec.t) : unit =
+  Vec.clear out_conflict;
+  Vec.push out_conflict p;
+
+  if decision_level self > 0 then (
+    Vec.set self.seen ((Lit.var p):>int) true;
+    for i = Vec.size self.trail-1 downto Vec.get self.trail_lim 0 do
+      let p = Vec.get self.trail i in
+      let x = Lit.var p in
+      if Vec.get self.seen (x:>int) then (
+        let c = reason_var self x in
+        if Cref.is_undef c then (
+          (* decision (ie assumption), push it *)
+          assert (level_var self x > 0);
+          Vec.push out_conflict (Lit.not p);
+        ) else (
+          let h = Clause.header self.ca c in
+          for j=1 to CH.size h-1 do
+            let vj = Lit.var (Clause.lit self.ca c j) in
+            (* conflict resolution with lits that propagated [p] *)
+            if level_var self vj > 0 then (
+              Vec.set self.seen (vj:>int) true;
+            );
+          done;
+        );
+        Vec.set self.seen (x:>int) false;
+      )
+    done;
+    Vec.set self.seen ((Lit.var p):>int) false;
   )
 
 let satisfied self (c:Cref.t) : bool =
