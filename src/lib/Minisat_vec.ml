@@ -14,6 +14,7 @@ let[@inline] make () : _ t = {data=[| |]; sz=0}
 let[@inline] make_with sz pad : _ t = assert (sz>=0); {data=Array.make sz pad; sz}
 
 let[@inline] size self : int = self.sz
+let[@inline] empty self = self.sz = 0
 let[@inline] capacity self : int = Array.length self.data
 let[@inline] get self i = assert (i>=0 && i<self.sz); Array.unsafe_get self.data i
 let[@inline] set self i x : unit = assert (i>=0 && i<self.sz); Array.unsafe_set self.data i x
@@ -67,7 +68,7 @@ let move_to self ~into : unit =
   into.data <- self.data;
   into.sz <- self.sz
 
-let iteri f {data; sz} : unit =
+let[@specialise] iteri f {data; sz} : unit =
   assert (sz <= Array.length data);
   for i=0 to sz-1 do
     f i (Array.unsafe_get data i)

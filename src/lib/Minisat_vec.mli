@@ -4,6 +4,7 @@ type 'a t
 val make : unit -> 'a t
 val make_with : int -> 'a -> 'a t
 
+val empty : _ t -> bool
 val size : _ t -> int
 val capacity : _ t -> int
 val ensure : 'a t -> int -> 'a -> unit

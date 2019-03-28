@@ -424,6 +424,164 @@ let remove_clause self (c:Cref.t) : unit =
   Clause.set_mark self.ca c 1;
   Clause.Alloc.free self.ca c
 
+let var_bump_activity self (v:Var.t) : unit =
+  Printf.printf "var bump activity\n";
+  () (* TODO *)
+
+let cla_bump_activity self (c:Cref.t) : unit =
+  Printf.printf "cla bump activity\n";
+  () (* TODO *)
+
+let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
+  Vec.clear self.analyze_stack;
+  Vec.push self.analyze_stack p;
+  let top = Vec.size self.analyze_toclear in
+  try
+    while Vec.size self.analyze_stack > 0 do
+      (* clause that propagated a literal *)
+      let c = reason_lit self (Vec.last self.analyze_stack) in
+      Vec.pop self.analyze_stack;
+      assert (not (Cref.is_undef c));
+      let h = Clause.header self.ca c in
+
+      for i=1 to CH.size h-1 do
+        let p = Clause.lit self.ca c i in
+        if not (Vec.get self.seen ((Lit.var p):>int)) && level_lit self p>0 then (
+          if not (Cref.is_undef (reason_lit self p)) &&
+             (abstract_level self (Lit.var p) land ab_lvl) <> 0
+          then (
+            Vec.set self.seen ((Lit.var p):>int) true;
+            Vec.push self.analyze_stack p;
+            Vec.push self.analyze_toclear p;
+          ) else (
+            (* cannot be eliminated, not involved in conflict.
+               restore to input state + return false. *)
+            for j = top to Vec.size self.analyze_toclear-1 do
+              Vec.set self.seen ((Lit.var (Vec.get self.analyze_toclear j)):>int) false;
+            done;
+            Vec.shrink self.analyze_toclear top;
+            raise_notrace Early_return_false
+          )
+        )
+      done;
+    done;
+    true (* TODO *)
+  with Early_return_false -> false
+
+(* Description:
+   Analyze conflict and produce a reason clause.
+ 
+   Pre-conditions:
+     * 'out_learnt' is assumed to be cleared.
+     * Current decision level must be greater than root level.
+ 
+   Post-conditions:
+     * 'out_learnt[0]' is the asserting literal at level 'out_btlevel'.
+     * If out_learnt.size() > 1 then 'out_learnt[1]' has the greatest decision level of the 
+       rest of literals. There may be others from the same level though.
+ *)
+let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
+  assert (Vec.empty out_learnt);
+  Vec.push out_learnt Lit.undef; (* leave room for asserting lit *)
+
+  let rec resolve_loop ~pathC ~p ~index ~confl : Lit.t =
+    assert (not (Cref.is_undef confl));
+
+    let h = Clause.header self.ca confl in
+    if CH.learnt h then cla_bump_activity self confl;
+
+    (* resolve with the other literals of the clause *)
+    for j = (if Lit.is_undef p then 0 else 1) to CH.size h - 1 do
+      let q = Clause.lit self.ca confl j in
+
+      if not (Vec.get self.seen ((Lit.var q):>int)) && level_lit self q > 0 then (
+        var_bump_activity self (Lit.var q);
+        Vec.set self.seen ((Lit.var q):>int) true;
+
+        if level_lit self q >= decision_level self then (
+          pathC := !pathC + 1; (* need to resolve this away *)
+        ) else (
+          Vec.push out_learnt q;
+        )
+      );
+    done;
+
+    (* next literal to consider *)
+    let index =
+      let rec loop i =
+        let v = Lit.var (Vec.get self.trail i) in
+        if Vec.get self.seen (v:>int) then i else loop (i-1)
+      in
+      loop index
+    in
+
+    let p = Vec.get self.trail (index+1) in
+    let confl = reason_lit self p in
+    Vec.set self.seen ((Lit.var p):>int) false;
+    pathC := !pathC - 1;
+
+    if !pathC > 0 then (resolve_loop[@tailcall]) ~pathC ~p ~index ~confl
+    else p
+  in
+  let p = resolve_loop ~pathC:(ref 0) ~p:Lit.undef ~index:(Vec.size self.trail-1) ~confl in
+  Vec.set out_learnt 0 (Lit.not p);
+
+  (* simplify conflict clause *)
+  Vec.copy_to out_learnt ~into:self.analyze_toclear;
+  let j = ref 0 in
+  if self.ccmin_mode = 2 then (
+    (* maintain an abstraction of levels involved in conflict *)
+    let ab_lvl =
+      let lvl = ref 0 in
+      for i=1 to Vec.size out_learnt-1 do
+        lvl:= !lvl lor abstract_level self (Lit.var (Vec.get out_learnt i));
+      done;
+      !lvl
+    in
+
+    j := 1;
+    for i = 1 to Vec.size out_learnt-1 do
+      let p = Vec.get out_learnt i in
+      if Cref.is_undef (reason_lit self p) || not (lit_redundant self p ab_lvl) then (
+        (* decision lit, or not redundant: keep *)
+        Vec.set out_learnt !j p;
+        j := !j + 1;
+      )
+    done;
+  ) else if self.ccmin_mode = 1 then (
+    assert false (* TODO *)
+  ) else (
+    j := Vec.size out_learnt;
+  );
+
+  self.max_literals <- self.max_literals + Vec.size out_learnt;
+  Vec.shrink out_learnt !j;
+  self.tot_literals <- self.tot_literals + Vec.size out_learnt;
+
+  (* cleanup 'seen' *)
+  Vec.iteri
+    (fun _ p -> Vec.set self.seen ((Lit.var p):>int) false)
+    self.analyze_toclear;
+  Vec.clear self.analyze_toclear;
+
+  (* Find correct backtrack level: *)
+  if Vec.size out_learnt = 1 then (
+    0
+  ) else (
+    let max_i = ref 1 in
+    (* Find the first literal assigned at the next-highest level: *)
+    for i = 2 to Vec.size out_learnt-1 do
+      if level_lit self (Vec.get out_learnt i) > level_lit self (Vec.get out_learnt !max_i) then (
+        max_i := i;
+      )
+    done;
+    (* Swap-in this literal at index 1: *)
+    let p = Vec.get out_learnt !max_i in
+    Vec.set out_learnt !max_i (Vec.get out_learnt 1);
+    Vec.set out_learnt 1 p;
+    level_lit self p
+  )
+
 let satisfied self (c:Cref.t) : bool =
   Clause.exists self.ca c (fun lit -> Lbool.equal Lbool.true_ (value_lit self lit))
 

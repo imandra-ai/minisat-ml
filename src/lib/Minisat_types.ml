@@ -36,6 +36,7 @@ module Lit : sig
 
   val make_sign : Var.t -> bool -> t
   val make : Var.t -> t
+  val is_undef : t -> bool
   val equal : t -> t -> bool
   val compare : t -> t -> int
   val not : t -> t
@@ -67,6 +68,7 @@ end = struct
   let[@inline] to_int_a x = x
   let undef = -2
   let error = -1
+  let[@inline] is_undef c = equal undef c
   module Internal = struct
     let[@inline] of_int x = x
     let[@inline] of_int_a x = x
@@ -387,7 +389,7 @@ end = struct
     let h = header a c in
     Lit.Internal.of_int_a (Array.sub a.memory (c+1) (Header.size h))
 
-  let for_all a c f : bool =
+  let[@specialise] for_all a c f : bool =
     let h = header a c in
     try
       for i = 0 to Header.size h - 1 do
@@ -396,7 +398,7 @@ end = struct
       true
     with Early_return_false -> false
 
-  let exists a c f : bool =
+  let[@specialise] exists a c f : bool =
     let h = header a c in
     try
       for i = 0 to Header.size h - 1 do
