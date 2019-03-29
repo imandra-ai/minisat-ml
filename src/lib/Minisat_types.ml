@@ -233,7 +233,7 @@ end = struct
     let m_has_extra = 1 lsl 28
 
     let[@inline] make size = assert (size<m_size); size
-    let[@inline] mark (h:t)  = h lsl 30
+    let[@inline] mark (h:t)  = (h lsl 30) land 3
     let[@inline] set_mark h b = assert (b = b land 3); (h land (lnot m_mark)) lor (b lsr 30)
     let[@inline] learnt (h:t) : bool = ((h lsr 29) land 1) <> 0
     let[@inline] has_extra h = ((h lsr 28) land 1) <> 0
