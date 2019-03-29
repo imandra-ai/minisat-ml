@@ -170,6 +170,7 @@ module Clause : sig
     type t
     val make : ?start:int -> unit -> t 
     val wasted : t -> int
+    val size : t -> int
     val alloc : t -> Lit.t Vec.t -> learnt:bool -> Cref.t
     val free : t -> Cref.t -> unit
     val move_to : t -> into:t -> unit
@@ -309,7 +310,7 @@ end = struct
       let header = Header.make_ ~learnt size in
       (* copy header and lits *)
       self.memory.(cr) <- header;
-      Vec.iteri (fun i lit -> self.memory.(cr+i+1) <- (lit:Lit.t:>int)) lits;
+      Array.blit (Lit.to_int_a (Vec.Internal.data lits)) 0 self.memory (cr+1) size;
       if use_extra then (
         let extra =
           if learnt then (

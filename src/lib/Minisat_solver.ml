@@ -129,8 +129,6 @@ type t = {
   mutable propagation_budget : int; (* -1 means no budget. *)
 }
 
-(* TODO *)
-
 let[@inline] ok self = self.ok
 let[@inline] n_vars self : int = Vec.size self.var_level
 let[@inline] n_free_vars self : int =
@@ -222,7 +220,6 @@ module Watch = struct
     ()
 
   let clean_all self : unit =
-    Printf.printf "watch clean all\n";
     Vec.iteri
       (fun _ (p:Lit.t) ->
          (* Dirties may contain duplicates so check here if a variable is already cleaned: *)
@@ -303,8 +300,8 @@ let[@inline] enqueue self (p:Lit.t) (from:Cref.t) : bool =
   )
 
 let attach_clause (self:t) (c:Cref.t) : unit =
-  Printf.printf "attach clause %d\n" c;
-  Array.iter (fun lit -> Printf.printf "  %d\n" (Lit.to_int lit)) (Clause.lits_a self.ca c);
+  (* Printf.printf "attach clause %d\n" c;
+  Array.iter (fun lit -> Printf.printf "  %d\n" (Lit.to_int lit)) (Clause.lits_a self.ca c);*)
   let h = Clause.header self.ca c in
   assert (CH.size h > 1);
   let c0 = Clause.lit self.ca c 0 in
@@ -341,7 +338,7 @@ let[@inline] detach_clause self c : unit = detach_clause_ self ~strict:false c
 
 let cancel_until self (level:int) : unit =
   if decision_level self > level then (
-    Printf.printf "cancel-until %d\n" level;
+    (* Printf.printf "cancel-until %d\n" level; *)
     let offset = Vec.get self.trail_lim level in
     for c = Vec.size self.trail-1 downto offset do
       let lit_c = Vec.get self.trail c in
@@ -400,7 +397,6 @@ let pick_branch_lit self : Lit.t =
      * the propagation queue is empty, even if there was a conflict.
 *)
 let propagate (self:t) : Cref.t =
-  Printf.printf "propagate\n";
   Watch.clean_all self;
   let confl = ref Cref.undef in
   while self.qhead < Vec.size self.trail do
@@ -495,7 +491,6 @@ let propagate (self:t) : Cref.t =
   !confl
 
 let add_clause self (ps:Lit.t Vec.t) : bool =
-  Printf.printf "add clause\n";
   try
     if not self.ok then raise_notrace Early_return_false;
     assert (decision_level self = 0);
@@ -547,7 +542,7 @@ let locked self (c:Cref.t) : bool =
   c = reason_var self (Lit.var c0)
 
 let remove_clause self (c:Cref.t) : unit =
-  Printf.printf "remove clause %d\n" c;
+  (*Printf.printf "remove clause %d\n" c; *)
   detach_clause self c;
   if locked self c then (
     Vec.set self.var_reason ((Lit.var (Clause.lit self.ca c 0)):>int) Cref.undef;
@@ -558,24 +553,112 @@ let remove_clause self (c:Cref.t) : unit =
 let[@inline] new_decision_level self : unit =
   Vec.push self.trail_lim (Vec.size self.trail)
 
+let reloc_all (self:t) ~into:_ : unit =
+  (* All watchers: *)
+  Watch.clean_all self;
+  (* TODO
+  for v = 0 to n_vars self -1 do
+    for s = 0 to 1 do
+      let p = Lit.make (Var.make v) (s=1) in
+      let ws_c = Vec.get self.watches_cref (p:>int) in
+    done;
+  done;
+    for (int v = 0; v < nVars(); v++)
+        for (int s = 0; s < 2; s++){
+            Lit p = mkLit(v, s);
+            // printf(" >>> RELOCING: %s%d\n", sign(p)?"-":"", var(p)+1);
+            vec<Watcher>& ws = watches[p];
+            for (int j = 0; j < ws.size(); j++)
+                ca.reloc(ws[j].cref, to);
+        }
+
+    // All reasons:
+    //
+    for (int i = 0; i < trail.size(); i++){
+        Var v = var(trail[i]);
+
+        if (reason(v) != CRef_Undef && (ca[reason(v)].reloced() || locked(ca[reason(v)])))
+            ca.reloc(vardata[v].reason, to);
+    }
+
+    // All learnt:
+    //
+    for (int i = 0; i < learnts.size(); i++)
+        ca.reloc(learnts[i], to);
+
+    // All original:
+    //
+    for (int i = 0; i < clauses.size(); i++)
+        ca.reloc(clauses[i], to);
+  }
+     *)
+  ()
+
+let garbage_collect self : unit =
+  (* Initialize the next region to a size corresponding to the estimated utilization degree. This
+     is not precise but should avoid some unnecessary reallocations for the new region: *)
+  let module CA = Clause.Alloc in
+  let to_ = CA.make ~start:(CA.size self.ca - CA.wasted self.ca) () in
+  reloc_all self ~into:to_;
+  if self.verbosity >= 2 then (
+    Printf.printf "|  Garbage collection:   %12d bytes => %12d bytes             |\n"
+      (CA.size self.ca) (CA.size to_);
+  );
+  CA.move_to to_ ~into:self.ca
+
+let check_garbage self : unit =
+  if float_of_int (Clause.Alloc.wasted self.ca)
+     > float_of_int (Clause.Alloc.size self.ca) *. self.garbage_frac
+  then (
+    garbage_collect self;
+  )
+
+(* reduceDB : ()  ->  [void]
+   
+   Description:
+     Remove half of the learnt clauses, minus the clauses locked by the current assignment. Locked
+     clauses are clauses that are reason to some assignment. Binary clauses are never removed.
+*)
 let reduce_db self : unit =
-  Printf.printf "reduce-db\n";
-  () (* TODO *)
+  (*Printf.printf "reduce-db\n"; *)
+  Sort.sort_vec
+    (fun x y ->
+       let sz_x = Clause.size self.ca x in
+       let sz_y = Clause.size self.ca y in
+       (* binary clauses are higher; low activity are smaller *)
+       match sz_x, sz_y with
+       | 2, n when n>2 -> 1
+       | n, 2 when n>2 -> -1
+       | _ ->
+         compare (Clause.activity self.ca x) (Clause.activity self.ca y))
+    self.learnts;
+
+  let j = ref 0 in
+  let extra_lim = self.cla_inc /. float_of_int (Vec.size self.learnts) in
+  for i=0 to Vec.size self.learnts-1 do
+    let c = Vec.get self.learnts i in
+    if Clause.size self.ca c > 2 && not (locked self c) &&
+       (i < Vec.size self.learnts / 2 || Clause.activity self.ca c < extra_lim) then (
+      remove_clause self c;
+    ) else (
+      Vec.set self.learnts !j c;
+      j := !j + 1;
+    )
+  done;
+  Vec.shrink self.learnts !j;
+  check_garbage self;
+  ()
 
 let var_bump_activity self (v:Var.t) : unit =
-  Printf.printf "var bump activity\n";
   () (* TODO *)
 
 let cla_bump_activity self (c:Cref.t) : unit =
-  Printf.printf "cla bump activity\n";
   () (* TODO *)
 
 let var_decay_activity self : unit =
-  Printf.printf "var bump activity\n";
   () (* TODO *)
 
 let cla_decay_activity self : unit =
-  Printf.printf "cla bump activity\n";
   () (* TODO *)
 
 let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
@@ -611,7 +694,7 @@ let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
         )
       done;
     done;
-    true (* TODO *)
+    true
   with Early_return_false -> false
 
 (* Description:
