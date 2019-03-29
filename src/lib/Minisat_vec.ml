@@ -1,10 +1,4 @@
 
-
-(* used to compute next capacity *)
-let[@inline] imax x y : int =
-  let mask = (y-x) lsr Sys.int_size in
-  (x land mask) + (y land (lnot mask))
-
 type 'a t = {
   mutable data: 'a array;
   mutable sz: int;
@@ -26,11 +20,11 @@ let ensure self min_cap pad : unit =
   let cap = capacity self in
   if cap < min_cap then (
     (* grow by approx. 3/2 *)
-    let add =
-      imax ((min_cap - cap + 1) land (lnot 1)) (((cap lsr 1) + 2) land (lnot 1))
+    let new_cap =
+      min Sys.max_array_length (max min_cap (cap + cap lsr 1 + 2))
     in
-    if add > max_int-cap then raise_notrace Out_of_memory;
-    let new_data = Array.make (cap+add) pad in
+    if new_cap < min_cap then raise_notrace Out_of_memory;
+    let new_data = Array.make new_cap pad in
     Array.blit self.data 0 new_data 0 self.sz;
     self.data <- new_data;
   )
