@@ -552,6 +552,9 @@ let remove_clause self (c:Cref.t) : unit =
   Clause.set_mark self.ca c 1;
   Clause.Alloc.free self.ca c
 
+let[@inline] new_decision_level self : unit =
+  Vec.push self.trail_lim (Vec.size self.trail)
+
 let reduce_db self : unit =
   Printf.printf "reduce-db\n";
   () (* TODO *)
@@ -561,6 +564,14 @@ let var_bump_activity self (v:Var.t) : unit =
   () (* TODO *)
 
 let cla_bump_activity self (c:Cref.t) : unit =
+  Printf.printf "cla bump activity\n";
+  () (* TODO *)
+
+let var_decay_activity self : unit =
+  Printf.printf "var bump activity\n";
+  () (* TODO *)
+
+let cla_decay_activity self : unit =
   Printf.printf "cla bump activity\n";
   () (* TODO *)
 
@@ -809,6 +820,130 @@ let progress_estimate self : float =
   done;
   !progress /. (float_of_int (n_vars self))
 
+(* search : (nof_conflicts : int) (params : const SearchParams&)  ->  [lbool]
+   
+   Description:
+     Search for a model the specified number of conflicts. 
+     NOTE! Use negative value for 'nof_conflicts' indicate infinity.
+   
+   Output:
+     'l_True' if a partial assigment that is consistent with respect to the clauseset is found. If
+     all variables are decision variables, this means that the clause set is satisfiable. 'l_False'
+     if the clause set is unsatisfiable. 'l_Undef' if the bound on number of conflicts is reached.
+*)
+let search self (nof_conflicts:int) : Lbool.t =
+  assert (self.ok);
+  self.starts <- self.starts + 1;
+  let learnt_clause = Vec.make() in
+  let rec loop ~conflictC : Lbool.t =
+    let confl = propagate self in
+    if not (Cref.is_undef confl) then (
+      (* conflict *)
+      self.conflicts <- self.conflicts + 1;
+      let conflictC = conflictC + 1 in
+
+      if decision_level self = 0 then (
+        Lbool.false_ (* toplevel conflict *)
+      ) else (
+        Vec.clear learnt_clause;
+        let backtrack_level = analyze self confl learnt_clause in
+        cancel_until self backtrack_level;
+
+        (* propagate negation of UIP *)
+        if Vec.size learnt_clause = 1 then (
+          assert (backtrack_level=0);
+          unchecked_enqueue self (Vec.get learnt_clause 0) Cref.undef;
+        ) else (
+          let c = Clause.Alloc.alloc self.ca learnt_clause ~learnt:true in
+          Vec.push self.learnts c;
+          attach_clause self c;
+          cla_bump_activity self c;
+          unchecked_enqueue self (Vec.get learnt_clause 0) c;
+        );
+
+        var_decay_activity self;
+        cla_decay_activity self;
+
+        self.learntsize_adjust_cnt <- self.learntsize_adjust_cnt - 1;
+        if self.learntsize_adjust_cnt = 0 then (
+          self.learntsize_adjust_confl <-
+            self.learntsize_adjust_confl *. self.learntsize_adjust_inc;
+          self.learntsize_adjust_cnt <- int_of_float self.learntsize_adjust_confl;
+          self.max_learnts <- self.max_learnts *. self.learntsize_inc;
+          if self.verbosity >= 1 then (
+            let i = int_of_float in
+            Printf.printf "| %9d | %7d %8d %8d | %8d %8d %6.0f | %6.3f %% |\n"
+              self.conflicts
+              (self.dec_vars -
+               (if Vec.size self.trail_lim=0 then Vec.size self.trail else Vec.get self.trail_lim 0))
+              (n_clauses self)
+              self.clause_literals
+              (i self.max_learnts)
+              (n_learnts self)
+              (float_of_int self.learnt_literals /. float_of_int (n_learnts self))
+              (self.progress_estimate *. 100.);
+          );
+
+        );
+        loop ~conflictC
+      )
+    ) else (
+      (* no conflict *)
+      if (nof_conflicts >= 0 && conflictC >= nof_conflicts) ||
+         not (within_budget self) then(
+        self.progress_estimate <- progress_estimate self;
+        cancel_until self 0;
+        Lbool.undef (* give up *)
+      ) else if decision_level self = 0 && not (simplify self) then (
+        Lbool.false_ (* simplification => conflict *)
+      ) else (
+        if float_of_int (Vec.size self.learnts - n_assigns self) >= self.max_learnts then (
+          (* Reduce the set of learnt clauses: *)
+          reduce_db self
+        );
+
+        (* add assumptions *)
+        let rec loop_add_assumps () =
+          if decision_level self < Vec.size self.assumptions then (
+            (* Perform user provided assumption: *)
+            let p = Vec.get self.assumptions (decision_level self) in
+            let val_p = value_lit self p in
+            if Lbool.equal Lbool.true_ val_p then (
+              (* Dummy decision level *)
+              new_decision_level self;
+              loop_add_assumps();
+            ) else if Lbool.equal Lbool.false_ val_p then (
+              (* conflict with assumptions *)
+              analyze_final self (Lit.not p) self.conflict;
+              raise_notrace Early_return_false;
+            ) else (
+              (* decide p next *)
+              p
+            )
+          ) else Lit.undef
+        in
+        let next = loop_add_assumps () in
+
+        let next =
+          if Lit.is_undef next then (
+            (* new variable decision *)
+            self.decisions <- self.decisions + 1;
+            pick_branch_lit self
+          ) else next 
+        in
+
+        if Lit.is_undef next then (
+          Lbool.true_ (* model found *)
+        ) else (
+          new_decision_level self;
+          unchecked_enqueue self next Cref.undef;
+          loop ~conflictC
+        )
+      )
+    )
+  in
+  try loop ~conflictC:0
+  with Early_return_false -> Lbool.false_
 
 (*
   Finite subsequences of the Luby-sequence:
@@ -847,9 +982,53 @@ let solve_ (self:t) : Lbool.t =
   Printf.printf "solve\n";
   Vec.clear self.model;
   Vec.clear self.conflict;
-  if self.ok then (
-    Lbool.true_ (* TODO *)
-  ) else Lbool.false_
+  if not self.ok then (
+    Lbool.false_
+  ) else (
+    self.solves <- self.solves + 1;
+    self.max_learnts <- float_of_int (n_clauses self) *. self.learntsize_factor;
+    self.learntsize_adjust_confl <- float_of_int self.learntsize_adjust_start_confl;
+    self.learntsize_adjust_cnt <- int_of_float self.learntsize_adjust_confl;
+
+    if self.verbosity >= 1 then (
+      Printf.printf("============================[ Search Statistics ]==============================\n");
+      Printf.printf("| Conflicts |          ORIGINAL         |          LEARNT          | Progress |\n");
+      Printf.printf("|           |    Vars  Clauses Literals |    Limit  Clauses Lit/Cl |          |\n");
+      Printf.printf("===============================================================================\n");
+    );
+
+    (* search until budget is exhausted, or status is true/false *)
+    let rec loop_search ~curr_restarts =
+      let rest_base =
+        if self.luby_restart then luby self.restart_inc curr_restarts
+        else self.restart_inc ** (float_of_int curr_restarts)
+      in
+      let status = search self (int_of_float rest_base * self.restart_first) in
+      if not (within_budget self) then status (* break *)
+      else if Lbool.equal Lbool.undef status
+      then loop_search ~curr_restarts:(curr_restarts+1)
+      else status
+    in
+    let status = loop_search ~curr_restarts:0 in
+
+    if self.verbosity >= 1 then (
+      Printf.printf("===============================================================================\n");
+    );
+
+    if Lbool.equal Lbool.true_ status then (
+      (* extend and copy model *)
+      Vec.grow_to self.model (n_vars self) Lbool.undef;
+      for i=0 to n_vars self-1 do
+        Vec.set self.model i (value_var self (Var.Internal.of_int i))
+      done
+    ) else if Lbool.equal Lbool.false_ status && Vec.size self.conflict = 0 then (
+      (* empty clause, no assumptions involved *)
+      self.ok <- false;
+    );
+
+    cancel_until self 0;
+    status
+  )
 
 let solve self ~assumps : bool =
   budget_off self;
