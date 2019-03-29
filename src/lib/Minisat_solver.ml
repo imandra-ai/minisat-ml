@@ -443,7 +443,7 @@ let propagate (self:t) : Cref.t =
             (* If 0th watch is true, then clause is already satisfied. *)
             Vec.set ws_b j first;
             Vec.set ws_c j c;
-            loop1 i (j+1);
+            (loop1 [@tailcall]) i (j+1);
           ) else (
             (* Look for new watch: *)
             let rec find_w k =
@@ -463,7 +463,7 @@ let propagate (self:t) : Cref.t =
             in
             let found_watch = find_w 2 in
             if found_watch then (
-              loop1 i j (* not a watch anymore, remove from list *)
+              (loop1 [@tailcall]) i j (* not a watch anymore, remove from list *)
             ) else (
               (* Did not find watch -- clause is unit under assignment: *)
               Vec.push ws_b first;
@@ -480,7 +480,7 @@ let propagate (self:t) : Cref.t =
               ) else (
                 (* propagate [first] *)
                 unchecked_enqueue self first c;
-                loop1 i j
+                (loop1 [@tailcall]) i j
               )
             )
           )
@@ -776,9 +776,72 @@ let rebuild_order_heap self : unit =
   done;
   Heap.build self.order_heap vs
 
-let simplify _self : bool =
+let simplify self : bool =
   Printf.printf "simplify\n";
-  true (* TODO *)
+  assert (decision_level self = 0);
+  if not self.ok || not (Cref.is_undef (propagate self)) then (
+    self.ok <- false;
+    false
+  ) else if n_assigns self = self.simpDB_assigns || self.simpDB_props > 0 then (
+    true
+  ) else (
+    remove_satisfied self self.learnts;
+    if self.remove_satisfied then (
+      remove_satisfied self self.clauses;
+    );
+    (* TODO:
+       check_garbage self;
+       rebuild_order_heap self;
+       *)
+    self.simpDB_assigns <- n_assigns self;
+    self.simpDB_props <- self.clause_literals + self.learnt_literals;
+    true
+  )
+
+let progress_estimate self : float =
+  let progress = ref 0. in
+  let f = 1. /. float_of_int (n_vars self) in
+  for i = 0 to decision_level self do
+    let beg = if i=0 then 0 else Vec.get self.trail_lim (i-1) in
+    let end_ = if i=decision_level self then Vec.size self.trail else Vec.get self.trail_lim i in
+    progress :=
+      !progress +. (f ** (float_of_int i)) *. (float_of_int (end_ - beg));
+  done;
+  !progress /. (float_of_int (n_vars self))
+
+
+(*
+  Finite subsequences of the Luby-sequence:
+
+  0: 1
+  1: 1 1 2
+  2: 1 1 2 1 1 2 4
+  3: 1 1 2 1 1 2 4 1 1 2 1 1 2 4 8
+  ...
+*)
+let luby (y:float) (x:int) : float =
+  (* Find the finite subsequence that contains index 'x', and the
+     size of that subsequence: *)
+  let rec loop1 ~size ~seq =
+    if size >= x+1 then size,seq
+    else (
+      let seq = seq + 1 in
+      let size = 2*size + 1 in
+      loop1 ~size ~seq
+    )
+  in
+  let size, seq = loop1 ~size:1 ~seq:0 in
+  let rec loop2 ~x ~size ~seq =
+    if size-1 = x then seq
+    else (
+      let size = (size-1) lsr 1 in
+      let seq = seq -1 in
+      let x = x mod size in
+      loop2 ~x ~size ~seq
+    )
+  in
+  let seq = loop2 ~x ~size ~seq in
+  y ** float_of_int seq
 
 let solve_ (self:t) : Lbool.t =
   Printf.printf "solve\n";
