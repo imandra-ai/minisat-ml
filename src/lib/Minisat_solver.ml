@@ -409,6 +409,7 @@ let propagate (self:t) : Cref.t =
           assert (Lit.equal false_lit (Clause.lit self.ca c 1));
           let i = i+1 in
 
+          assert (not (Clause.reloced self.ca c));
           let first = Clause.lit self.ca c 0 in
           if not (Lit.equal blocker first) &&
              Lbool.equal Lbool.true_ (value_lit self first) then (
@@ -573,7 +574,7 @@ let garbage_collect self : unit =
   reloc_all self ~into:to_;
   if self.verbosity >= 2 then (
     Printf.printf "|  Garbage collection:   %12d bytes => %12d bytes             |\n"
-      (CA.size self.ca) (CA.size to_);
+      (CA.size self.ca * Sys.word_size) (CA.size to_ * Sys.word_size);
   );
   CA.move_to to_ ~into:self.ca;
   assert (Clause.Alloc.wasted self.ca = 0);

@@ -348,7 +348,7 @@ end = struct
       free_ self size
 
     let move_to self ~into : unit =
-      Printf.printf "ca.move_to\n";
+      (*Printf.printf "ca.move_to\n";*)
       into.memory <- self.memory;
       into.sz <- self.sz;
       into.act <- self.act;
@@ -439,7 +439,7 @@ end = struct
 
   let reloc (a:Alloc.t) (c:Cref.t) ~into : Cref.t =
     let h = header a c in
-    if Header.reloced c then (
+    if Header.reloced h then (
       relocation a c
     ) else (
       (* allocate copy of [c] *)
