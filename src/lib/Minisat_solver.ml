@@ -205,13 +205,15 @@ module Watch = struct
     let p_idx = (p:>int) in
     let ws_b = Vec.get self.watches_blocker p_idx in
     let ws_c = Vec.get self.watches_cref p_idx in
+    assert (Vec.size ws_b=Vec.size ws_c);
     let j = ref 0 in
-    for i=0 to Vec.size ws_c do
+    for i=0 to Vec.size ws_c-1 do
       let c = Vec.get ws_c i in
       if Clause.mark self.ca c <> 1 then (
         (* not deleted, keep *)
         Vec.set ws_c !j c;
         Vec.set ws_b !j (Vec.get ws_b i);
+        j := !j + 1;
       )
     done;
     Vec.shrink ws_b !j;
@@ -228,32 +230,6 @@ module Watch = struct
          ))
       self.watches_dirties;
     Vec.clear self.watches_dirties
-
-  (*
-  template<class Idx, class Vec, class Deleted>
-  void OccLists<Idx,Vec,Deleted>::cleanAll()
-  {
-      for (int i = 0; i < dirties.size(); i++)
-          // Dirties may contain duplicates so check here if a variable is already cleaned:
-          if (dirty[toInt(dirties[i])])
-              clean(dirties[i]);
-      dirties.clear();
-  }
-
-
-  template<class Idx, class Vec, class Deleted>
-  void OccLists<Idx,Vec,Deleted>::clean(const Idx& idx)
-  {
-      Vec& vec = occs[toInt(idx)];
-      int  i, j;
-      for (i = j = 0; i < vec.size(); i++)
-          if (!deleted(vec[i]))
-              vec[j++] = vec[i];
-      vec.shrink(i - j);
-      dirty[toInt(idx)] = 0;
-  }
-     *)
-
 end
 
 let set_decision_var self (v:Var.t) b : unit =
@@ -553,45 +529,40 @@ let remove_clause self (c:Cref.t) : unit =
 let[@inline] new_decision_level self : unit =
   Vec.push self.trail_lim (Vec.size self.trail)
 
-let reloc_all (self:t) ~into:_ : unit =
+let reloc_all (self:t) ~into : unit =
   (* All watchers: *)
   Watch.clean_all self;
-  (* TODO
   for v = 0 to n_vars self -1 do
     for s = 0 to 1 do
-      let p = Lit.make (Var.make v) (s=1) in
+      (* printf(" >>> RELOCING: %s%d\n", sign(p)?"-":"", var(p)+1);*)
+      let p = Lit.make_sign (Var.make v) (s=1) in
       let ws_c = Vec.get self.watches_cref (p:>int) in
+      Vec.iteri
+        (fun j c -> Vec.set ws_c j (Clause.reloc self.ca c ~into))
+        ws_c;
     done;
   done;
-    for (int v = 0; v < nVars(); v++)
-        for (int s = 0; s < 2; s++){
-            Lit p = mkLit(v, s);
-            // printf(" >>> RELOCING: %s%d\n", sign(p)?"-":"", var(p)+1);
-            vec<Watcher>& ws = watches[p];
-            for (int j = 0; j < ws.size(); j++)
-                ca.reloc(ws[j].cref, to);
-        }
 
-    // All reasons:
-    //
-    for (int i = 0; i < trail.size(); i++){
-        Var v = var(trail[i]);
+  (* All reasons: *)
+  Vec.iteri
+    (fun _ lit ->
+       let v = Lit.var lit in
+       let r = reason_var self v in
+       if not (Cref.is_undef r) && (Clause.reloced self.ca r || locked self r) then (
+         let r2 = Clause.reloc self.ca r ~into in
+         Vec.set self.var_reason (v:>int) r2;
+       ))
+    self.trail;
 
-        if (reason(v) != CRef_Undef && (ca[reason(v)].reloced() || locked(ca[reason(v)])))
-            ca.reloc(vardata[v].reason, to);
-    }
+  (* All learnt: *)
+  Vec.iteri
+    (fun i c -> Vec.set self.learnts i (Clause.reloc self.ca c ~into))
+    self.learnts;
 
-    // All learnt:
-    //
-    for (int i = 0; i < learnts.size(); i++)
-        ca.reloc(learnts[i], to);
-
-    // All original:
-    //
-    for (int i = 0; i < clauses.size(); i++)
-        ca.reloc(clauses[i], to);
-  }
-     *)
+  (* All original: *)
+  Vec.iteri
+    (fun i c -> Vec.set self.clauses i (Clause.reloc self.ca c ~into))
+    self.clauses;
   ()
 
 let garbage_collect self : unit =
@@ -604,7 +575,9 @@ let garbage_collect self : unit =
     Printf.printf "|  Garbage collection:   %12d bytes => %12d bytes             |\n"
       (CA.size self.ca) (CA.size to_);
   );
-  CA.move_to to_ ~into:self.ca
+  CA.move_to to_ ~into:self.ca;
+  assert (Clause.Alloc.wasted self.ca = 0);
+  ()
 
 let check_garbage self : unit =
   if float_of_int (Clause.Alloc.wasted self.ca)
@@ -623,6 +596,8 @@ let reduce_db self : unit =
   (*Printf.printf "reduce-db\n"; *)
   Sort.sort_vec
     (fun x y ->
+       assert (Clause.learnt self.ca x);
+       assert (Clause.learnt self.ca y);
        let sz_x = Clause.size self.ca x in
        let sz_y = Clause.size self.ca y in
        (* binary clauses are higher; low activity are smaller *)
@@ -874,7 +849,6 @@ let rebuild_order_heap self : unit =
   Heap.build self.order_heap vs
 
 let simplify self : bool =
-  Printf.printf "simplify\n";
   assert (decision_level self = 0);
   if not self.ok || not (Cref.is_undef (propagate self)) then (
     self.ok <- false;

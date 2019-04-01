@@ -190,6 +190,7 @@ module Clause : sig
   val set_header : Alloc.t -> Cref.t -> Header.t -> unit
   val size : Alloc.t -> Cref.t -> int
   val lit : Alloc.t -> Cref.t -> int -> Lit.t
+  val learnt : Alloc.t -> Cref.t -> bool
   val activity : Alloc.t -> Cref.t -> float
   val set_activity : Alloc.t -> Cref.t -> float -> unit
   val mark : Alloc.t -> Cref.t -> int
@@ -202,7 +203,7 @@ module Clause : sig
 
   val reloced : Alloc.t -> Cref.t -> bool
   val relocation : Alloc.t -> Cref.t -> Cref.t
-  val relocate : Alloc.t -> Cref.t -> into:Cref.t -> unit
+  val reloc : Alloc.t -> Cref.t -> into:Alloc.t -> Cref.t
 end = struct
   (* we imitate Minisat's allocator, but cannot fit both integers and floats
      in a single array.
@@ -235,7 +236,7 @@ end = struct
 
     let[@inline] make size = assert (size<m_size); size
     let[@inline] mark (h:t)  = (h lsl 30) land 3
-    let[@inline] set_mark h b = assert (b = b land 3); (h land (lnot m_mark)) lor (b lsr 30)
+    let[@inline] set_mark (h:t) b = assert (b = b land 3); (h land (lnot m_mark)) lor (b lsr 30)
     let[@inline] learnt (h:t) : bool = ((h lsr 29) land 1) <> 0
     let[@inline] has_extra h = ((h lsr 28) land 1) <> 0
     let[@inline] set_has_extra h = h lor (1 lsl 28)
@@ -266,6 +267,7 @@ end = struct
     let ensure_ self (min_cap:int) : unit =
       if Array.length self.memory < min_cap then (
         let prev_cap = Array.length self.memory in
+        (*Printf.printf "clause.alloc.ensure %d (cap %d)\n" min_cap prev_cap; *)
         let cap = ref prev_cap in
         while !cap < min_cap do
           (* NOTE: Multiply by a factor (13/8) without causing overflow, then add 2 and make the
@@ -277,6 +279,11 @@ end = struct
           cap := !cap + delta;
 
           if !cap <= prev_cap then raise Out_of_memory; (* overflow *)
+
+          (* realloc now *)
+          let memory = Array.make !cap ~-1 in
+          Array.blit self.memory 0 memory 0 self.sz;
+          self.memory <- memory;
         done;
       )
 
@@ -292,25 +299,27 @@ end = struct
       )
 
     (* abstraction of the literals *)
-    let compute_abstraction_ lits : int =
+    let compute_abstraction_ lits offset size : int =
       let abs = ref 0 in
-      Vec.iteri
-        (fun _ lit ->
-          abs := !abs lor (1 lsl ((Lit.var lit:Var.t :>int) land 31)))
-        lits;
+      for i = 0 to size-1 do
+        let lit = lits.(offset+i) in
+        abs := !abs lor (1 lsl ((Lit.var lit:Var.t :>int) land 31))
+      done;
       !abs
 
-    let alloc self (lits:Lit.t Vec.t) ~learnt : Cref.t =
+    let alloc_ self (lits:Lit.t array) offset (size:int) ~learnt : Cref.t =
       let use_extra = self.extra_clause_field || learnt in
-      let size = Vec.size lits in
       let len = 1 + size + (__int_of_bool use_extra) in
       ensure_ self (self.sz + len);
+      (*Printf.printf "alloc lits (len %d) offset %d size %d (self: len %d sz %d)\n"
+        (Array.length lits) offset size (Array.length self.memory) self.sz;*)
       let cr = self.sz in
       self.sz <- self.sz + len;
       let header = Header.make_ ~learnt size in
+      let header = if use_extra then Header.set_has_extra header else header in
       (* copy header and lits *)
       self.memory.(cr) <- header;
-      Array.blit (Lit.to_int_a (Vec.Internal.data lits)) 0 self.memory (cr+1) size;
+      Array.blit (Lit.to_int_a lits) offset self.memory (cr+1) size;
       if use_extra then (
         let extra =
           if learnt then (
@@ -321,12 +330,15 @@ end = struct
             self.act.(act_idx) <- 0.;
             act_idx
           ) else (
-            compute_abstraction_ lits
+            compute_abstraction_ lits offset size
           )
         in
-        self.memory.(1+size) <- extra;
+        self.memory.(cr+1+size) <- extra;
       );
       cr
+
+    let alloc self (lits:Lit.t Vec.t) ~learnt : Cref.t =
+      alloc_ self (Vec.Internal.data lits) 0 (Vec.size lits) ~learnt
 
     let[@inline] free_ self size : unit = self.wasted <- size + self.wasted
 
@@ -336,12 +348,17 @@ end = struct
       free_ self size
 
     let move_to self ~into : unit =
+      Printf.printf "ca.move_to\n";
       into.memory <- self.memory;
       into.sz <- self.sz;
+      into.act <- self.act;
+      into.sz_act <- self.sz_act;
       into.wasted <- self.wasted;
       self.memory <- [| |];
+      self.act <- [| |];
       self.wasted <- 0;
       self.sz <- 0;
+      self.sz_act <- 0;
       ()
   end
 
@@ -362,6 +379,7 @@ end = struct
   let[@inline] header (a:alloc) (r:Cref.t) : Header.t = a.memory.(r)
   let[@inline] set_header (a:alloc) (r:Cref.t) (h:Header.t) : unit = a.memory.(r) <- h
   let[@inline] size a c = Header.size (header a c)
+  let[@inline] learnt a c = Header.learnt (header a c)
 
   let[@inline] get_data_ a (c:Cref.t) (i:int) : int = a.memory.(c+1+i)
   let[@inline] set_data_ a (c:Cref.t) (i:int) (x:int) : unit = a.memory.(c+1+i) <- x
@@ -384,7 +402,7 @@ end = struct
   let[@inline] mark a c : int = Header.mark (header a c)
   let set_mark a c m : unit =
     let h = header a c in
-    set_header a c (Header.set_mark m h)
+    set_header a c (Header.set_mark h m)
 
   (* obtain literals *)
   let lits_a a c =
@@ -418,9 +436,27 @@ end = struct
 
   let[@inline] reloced a c = Header.reloced (header a c)
   let[@inline] relocation a c : Cref.t = get_data_ a c 0
-  let relocate a c ~into : unit =
-    set_header a c (Header.set_reloced (header a c));
-    set_data_ a c 0 into (* first lit --> into *)
+
+  let reloc (a:Alloc.t) (c:Cref.t) ~into : Cref.t =
+    let h = header a c in
+    if Header.reloced c then (
+      relocation a c
+    ) else (
+      (* allocate copy of [c] *)
+      (*Printf.printf "reloc c%d [len %d]\n" c (Header.size h);*)
+      let c2: Cref.t =
+        Alloc.alloc_ into
+          (Lit.Internal.of_int_a a.memory) (c+1) (Header.size h)
+          ~learnt:(Header.learnt h) in
+      set_header a c (Header.set_reloced h);
+      set_data_ a c 0 c2; (* first lit --> into *)
+      set_mark into c2 (Header.mark h);
+      if Header.learnt h then (
+        set_activity into c2 (activity a c);
+      );
+      (* TODO: check that if [has_extra h] then abstraction is recomputed properly *)
+      c2
+    )
 end
 
 (*$inject
