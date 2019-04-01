@@ -16,7 +16,7 @@ let[@inline] shrink self size = if size < self.sz then self.sz <- size
 let[@inline] clear self = self.sz <- 0
 let[@inline] clear_dealloc self = self.sz <- 0; self.data <- [| |]
 
-let ensure self min_cap pad : unit =
+let[@inline never] ensure self min_cap pad : unit =
   let cap = capacity self in
   if cap < min_cap then (
     (* grow by approx. 3/2 *)
@@ -51,12 +51,10 @@ let push self x =
   Array.unsafe_set self.data self.sz x;
   self.sz <- 1 + self.sz
 
-let[@inline] last self = assert(self.sz>0); get self (self.sz-1)
+let[@inline] last self = assert(self.sz>0); Array.unsafe_get self.data (self.sz-1)
 let[@inline] pop self : unit = assert(self.sz>0); self.sz <- self.sz - 1
 
-let blit v1 i1 v2 i2 len =
-  assert (i1+len <= v1.sz && i2+len <= v2.sz);
-  Array.blit v1.data i1 v2.data i2 len
+let[@inline] blit v1 i1 v2 i2 len = Array.blit v1.data i1 v2.data i2 len
 
 let copy_to self ~into : unit =
   into.data <- Array.sub self.data 0 self.sz;
@@ -66,7 +64,7 @@ let move_to self ~into : unit =
   into.data <- self.data;
   into.sz <- self.sz
 
-let[@specialise] iteri f {data; sz} : unit =
+let[@inline] iteri f {data; sz} : unit =
   assert (sz <= Array.length data);
   for i=0 to sz-1 do
     f i (Array.unsafe_get data i)

@@ -103,10 +103,15 @@ end = struct
   let[@inline] xor x b = x lxor (__int_of_bool b)
   let[@inline] to_int x = x
 
+(*
   let[@inline] equal (x:t) (y:t) : bool =
     (((x land 2) land (y land 2)) lor
      ((__int_of_bool ((x land 2) = 0)) land (__int_of_bool (x=y)))
     ) <> 0
+*)
+
+  let[@inline] equal (x:t) (y:t) : bool =
+    if x=(x land 1) then x=y else x land 2 = y land 2
 
   let (&&&) (x:t) y : t =
     let sel = (x lsl 1) lor (y lsl 3) in
@@ -184,6 +189,8 @@ module Clause : sig
     val has_extra : t -> bool
     val reloced : t -> bool
     val size : t -> int
+
+    val make_ : learnt:bool -> int -> t
   end
 
   val header : Alloc.t -> Cref.t -> Header.t
@@ -260,7 +267,6 @@ end = struct
 
     let[@inline] size self = self.sz
     let[@inline] wasted self = self.wasted
-
     let[@inline] cap_act a = Array.length a.act
 
     (* ensure that capacity is at least [min_cap] *)
@@ -364,16 +370,16 @@ end = struct
 
   (** A clause.
       The clause is actually an offset in the allocator, pointing to a slice of
-      integers with the following layout:
+      integers in [allocator.memory] with the following layout:
 
-      Cref.t
-        |
-        v
+       Cref.t
+         |
+         v
       [header; lit0; lit1; …; lit_{size-1}; (abstraction | activity_index)?]
 
       where the last slot is there only if [header.has_extra] and is
-      either an offset in alloc.act if [header.learnt], or
-      an abtraction of the clause literals otherwise
+      either an offset in [allocator.act] if [header.learnt=true], or
+      an abtraction of the clause literals otherwise.
   *)
 
   let[@inline] header (a:alloc) (r:Cref.t) : Header.t = a.memory.(r)
@@ -464,13 +470,13 @@ end
 *)
 
 (*$R
-  let h = CH.make 4 in
+  let h = CH.make_ ~learnt:false 4 in
   assert_equal 4 (CH.size h);
   assert_bool "not learnt" (not @@ CH.learnt h);
   *)
 
 (*$R
-  let h = CH.make_learnt 6 in
+  let h = CH.make_ ~learnt:true 6 in
   assert_equal 6 (CH.size h);
   assert_bool "learnt" (CH.learnt h);
   *)

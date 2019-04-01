@@ -185,7 +185,7 @@ let insert_var_order self (v:Var.t) : unit =
 
 module Watch = struct
   type nonrec t = t
-  let[@inline] blocker_ self (lit:Lit.t) : _ Vec.t =
+  let[@inline] blocker_ (self:t) (lit:Lit.t) : _ Vec.t =
     Vec.get self.watches_blocker (lit:>int)
   let[@inline] cref_ self (lit:Lit.t) : _ Vec.t =
     Vec.get self.watches_cref (lit:>int)
@@ -322,20 +322,21 @@ let detach_clause_ (self:t) ~strict (c:Cref.t) : unit =
 
 let[@inline] detach_clause self c : unit = detach_clause_ self ~strict:false c
 
+(* Revert to the state at given level (keeping all assignment at 'level' but not beyond). *)
 let cancel_until self (level:int) : unit =
   if decision_level self > level then (
     (* Printf.printf "cancel-until %d\n" level; *)
     let offset = Vec.get self.trail_lim level in
     for c = Vec.size self.trail-1 downto offset do
       let lit_c = Vec.get self.trail c in
-      let v = Lit.var lit_c in
-      Vec.set self.assigns (v:>int) Lbool.undef;
+      let x = Lit.var lit_c in
+      Vec.set self.assigns (x:>int) Lbool.undef;
       if self.phase_saving>1 ||
          (self.phase_saving=1 && c > Vec.last self.trail_lim) then (
         (* save phase *)
-        Vec.set self.polarity (v:>int) (Lit.sign lit_c);
+        Vec.set self.polarity (x:>int) (Lit.sign lit_c);
       );
-      insert_var_order self v;
+      insert_var_order self x;
     done;
     self.qhead <- offset;
     Vec.shrink self.trail offset;
@@ -429,7 +430,7 @@ let propagate (self:t) : Cref.t =
             (loop1 [@tailcall]) i (j+1);
           ) else (
             (* Look for new watch: *)
-            let rec find_w k =
+            let[@unroll 2] rec find_w k =
               if k = CH.size ch then false
               else (
                 let ck = Clause.lit self.ca c k in
@@ -481,7 +482,7 @@ let add_clause self (ps:Lit.t Vec.t) : bool =
   try
     if not self.ok then raise_notrace Early_return_false;
     assert (decision_level self = 0);
-    Sort.sort_vec Lit.compare ps;
+    Sort.sort_vec ~less:(fun x y -> x<y) ps;
 
     (* Check if clause is satisfied and remove false/duplicate literals: *)
     let j = ref 0 and p = ref Lit.undef in
@@ -548,9 +549,9 @@ let reloc_all (self:t) ~into : unit =
       (* printf(" >>> RELOCING: %s%d\n", sign(p)?"-":"", var(p)+1);*)
       let p = Lit.make_sign (Var.make v) (s=1) in
       let ws_c = Vec.get self.watches_cref (p:>int) in
-      Vec.iteri
-        (fun j c -> Vec.set ws_c j (Clause.reloc self.ca c ~into))
-        ws_c;
+      for j=0 to Vec.size ws_c-1 do
+        Vec.set ws_c j (Clause.reloc self.ca (Vec.get ws_c j) ~into)
+      done;
     done;
   done;
 
@@ -584,7 +585,7 @@ let garbage_collect self : unit =
   reloc_all self ~into:to_;
   if self.verbosity >= 2 then (
     Printf.printf "|  Garbage collection:   %12d bytes => %12d bytes             |\n"
-      (CA.size self.ca * Sys.word_size) (CA.size to_ * Sys.word_size);
+      (CA.size self.ca * (Sys.word_size/8)) (CA.size to_ * (Sys.word_size/8));
   );
   CA.move_to to_ ~into:self.ca;
   assert (Clause.Alloc.wasted self.ca = 0);
@@ -595,6 +596,7 @@ let check_garbage self : unit =
      > float_of_int (Clause.Alloc.size self.ca) *. self.garbage_frac
   then (
     garbage_collect self;
+    Gc.major();
   )
 
 (* reduceDB : ()  ->  [void]
@@ -606,25 +608,27 @@ let check_garbage self : unit =
 let reduce_db self : unit =
   (*Printf.printf "reduce-db\n"; *)
   Sort.sort_vec
-    (fun x y ->
-       assert (Clause.learnt self.ca x);
-       assert (Clause.learnt self.ca y);
-       let sz_x = Clause.size self.ca x in
-       let sz_y = Clause.size self.ca y in
+    ~less:(fun x y ->
+       (*assert (Clause.learnt self.ca x);
+       assert (Clause.learnt self.ca y);*)
        (* binary clauses are higher; low activity are smaller *)
-       match sz_x, sz_y with
-       | 2, n when n>2 -> 1
-       | n, 2 when n>2 -> -1
-       | _ ->
-         compare (Clause.activity self.ca x) (Clause.activity self.ca y))
+       Clause.size self.ca x > 2 &&
+       (Clause.size self.ca y = 2 || 
+        Clause.activity self.ca x < Clause.activity self.ca y))
     self.learnts;
 
-  let j = ref 0 in
+  (* Remove any clause below this activity *)
   let extra_lim = self.cla_inc /. float_of_int (Vec.size self.learnts) in
-  for i=0 to Vec.size self.learnts-1 do
+  (*Printf.printf "cla-inc: %.5f  extra-lim: %.5f  learnts.size: %d\n"
+    self.cla_inc extra_lim (Vec.size self.learnts);*)
+  let j = ref 0 in
+  let n = Vec.size self.learnts in
+  for i=0 to n-1 do
     let c = Vec.get self.learnts i in
     if Clause.size self.ca c > 2 && not (locked self c) &&
-       (i < Vec.size self.learnts / 2 || Clause.activity self.ca c < extra_lim) then (
+       (i < n / 2 || Clause.activity self.ca c < extra_lim) then (
+      (*Printf.printf "remove clause (size %d, act %.5f)\n"
+        (Clause.size self.ca c) (Clause.activity self.ca c);*)
       remove_clause self c;
     ) else (
       Vec.set self.learnts !j c;
@@ -636,9 +640,7 @@ let reduce_db self : unit =
   ()
 
 let var_bump_activity self (v:Var.t) : unit =
-  let inc = self.var_inc in
-  let a = activity_var self v in
-  let a = a *. inc in
+  let a = activity_var self v +. self.var_inc in
   set_activity_var self v a;
   if a > 1e100 then (
     (* Rescale: *)
@@ -654,7 +656,7 @@ let var_bump_activity self (v:Var.t) : unit =
   )
 
 let cla_bump_activity self (c:Cref.t) : unit =
-  let act = Clause.activity self.ca c *. self.cla_inc in
+  let act = Clause.activity self.ca c +. self.cla_inc in
   Clause.set_activity self.ca c act;
   if act > 1e20 then (
     (* Rescale: *)
@@ -665,11 +667,11 @@ let cla_bump_activity self (c:Cref.t) : unit =
     self.cla_inc <- self.cla_inc *. 1e-20;
   )
 
-let var_decay_activity self : unit =
-  self.var_inc <- 1. /. self.var_decay
+let[@inline] var_decay_activity self : unit =
+  self.var_inc <- self.var_inc /. self.var_decay
 
-let cla_decay_activity self : unit =
-  self.cla_inc <- 1. /. self.clause_decay
+let[@inline] cla_decay_activity self : unit =
+  self.cla_inc <- self.cla_inc /. self.clause_decay
 
 let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
   Vec.clear self.analyze_stack;
@@ -1050,25 +1052,25 @@ let search self (nof_conflicts:int) : Lbool.t =
 let luby (y:float) (x:int) : float =
   (* Find the finite subsequence that contains index 'x', and the
      size of that subsequence: *)
-  let rec loop1 ~size ~seq =
+  let rec luby_loop1 ~size ~seq =
     if size >= x+1 then size,seq
     else (
       let seq = seq + 1 in
       let size = 2*size + 1 in
-      loop1 ~size ~seq
+      luby_loop1 ~size ~seq
     )
   in
-  let size, seq = loop1 ~size:1 ~seq:0 in
-  let rec loop2 ~x ~size ~seq =
+  let size, seq = luby_loop1 ~size:1 ~seq:0 in
+  let rec luby_loop2 ~x ~size ~seq =
     if size-1 = x then seq
     else (
       let size = (size-1) lsr 1 in
       let seq = seq -1 in
       let x = x mod size in
-      loop2 ~x ~size ~seq
+      luby_loop2 ~x ~size ~seq
     )
   in
-  let seq = loop2 ~x ~size ~seq in
+  let seq = luby_loop2 ~x ~size ~seq in
   y ** float_of_int seq
 
 let solve_ (self:t) : Lbool.t =

@@ -9,7 +9,7 @@ let print_stats (solver:Solver.t) : unit =
   let cpu_time = System.cpu_time () in
   let mem_used = System.mem_used_peak () in
   Printf.printf "restarts              : %d\n" (Solver.n_starts solver);
-  Printf.printf "conflicts             : %-12d  (%.0f /sec)\n"
+  Printf.printf "conflicts             : %-12d   (%.0f /sec)\n"
     (Solver.n_conflicts solver) ((float (Solver.n_conflicts solver) /. cpu_time));
   Printf.printf "decisions             : %-12d   (%4.2f %% random) (%.0f /sec)\n"
     (Solver.n_decisions solver)

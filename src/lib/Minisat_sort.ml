@@ -19,11 +19,11 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 *)
 
 
-let[@specialise] selection_sort cmp a offset ~len : unit =
+let[@specialise] selection_sort ~less a offset ~len : unit =
   assert (offset+len <= Array.length a);
   let rec loop_ i j best_i =
     if j<offset+len then (
-      let best_i = if cmp a.(j) a.(best_i) < 0 then j else best_i in
+      let best_i = if less a.(j) a.(best_i) then j else best_i in
       loop_ i (j+1) best_i
     ) else best_i
   in
@@ -37,21 +37,21 @@ let[@specialise] selection_sort cmp a offset ~len : unit =
     )
   done
 
-let[@specialise] rec sort_rec_ cmp a offset ~len : unit =
+let[@specialise] rec sort_rec_ less a offset ~len : unit =
   if len <= 1 then ()
   else if len <= 15 then (
-    selection_sort cmp a offset ~len
+    selection_sort ~less a offset ~len
   ) else (
     let pivot = a.(offset+len/2) in
 
     (* partition [a] into smaller and larger than pivot *)
     let rec find_i i =
       let i = i+1 in
-      if cmp a.(offset+i) pivot < 0 then find_i i else i
+      if less a.(offset+i) pivot then find_i i else i
     in
     let rec find_j j =
       let j = j-1 in
-      if cmp pivot a.(offset+j) < 0 then find_j j else j
+      if less pivot a.(offset+j) then find_j j else j
     in
 
     let rec partition i j =
@@ -66,20 +66,20 @@ let[@specialise] rec sort_rec_ cmp a offset ~len : unit =
       )
     in
     let i = partition (-1) len in
-    sort_rec_ cmp a offset ~len:i;
-    sort_rec_ cmp a (offset+i) ~len:(len-i);
+    sort_rec_ less a offset ~len:i;
+    sort_rec_ less a (offset+i) ~len:(len-i);
   )
 
 (* main entry to sort an array *)
-let[@inline] sort cmp a ~len : unit = sort_rec_ cmp a 0 ~len
+let[@inline] sort ~less a ~len : unit = sort_rec_ less a 0 ~len
 
-let[@specialise] sort_vec cmp v =
+let[@specialise] sort_vec ~less v =
   let module V = Minisat_vec in
-  sort cmp (V.Internal.data v) ~len:(V.size v)
+  sort ~less (V.Internal.data v) ~len:(V.size v)
 
 (*$R
   let a = [| 1; 4;2;7;10;29;20; 4;2; 10;22;562;9;0 |] in
-  sort Pervasives.compare a ~len:(Array.length a);
+  sort ~less:(fun x y-> x<y) a ~len:(Array.length a);
   let is_sorted a =
     let rec aux i = i+1=Array.length a || (a.(i) <= a.(i+1) && aux (i+1)) in
     aux 0
@@ -89,7 +89,7 @@ let[@specialise] sort_vec cmp v =
 
 (*$R
   let a = [| 1; 4;2;7;10;29;20; 4;2; 10;22;562;9;0; 1; 4;2;7;10;29;20; 22; 91; 19; 29; 5 |] in
-  sort Pervasives.compare a ~len:(Array.length a);
+  sort ~less:(fun x y-> x<y) a ~len:(Array.length a);
   let is_sorted a =
     let rec aux i = i+1=Array.length a || (a.(i) <= a.(i+1) && aux (i+1)) in
     aux 0
