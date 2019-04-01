@@ -137,8 +137,18 @@ let[@inline] n_free_vars self : int =
 let[@inline] n_assigns self : int = Vec.size self.trail
 let[@inline] n_clauses self : int = Vec.size self.clauses
 let[@inline] n_learnts self : int = Vec.size self.learnts
+let[@inline] n_starts self = self.starts
+let[@inline] n_conflicts self = self.conflicts
+let[@inline] n_propagations self = self.propagations
+let[@inline] n_decisions self = self.decisions
+let[@inline] n_rnd_decisions self = self.rnd_decisions
+let[@inline] n_tot_literals self = self.tot_literals
+let[@inline] n_max_literals self = self.max_literals
 
 let[@inline] decision_level self : int = Vec.size self.trail_lim
+
+let[@inline] activity_var self (v:Var.t) : float = Vec.get self.var_act (v:>int)
+let[@inline] set_activity_var self (v:Var.t) f : unit = Vec.set self.var_act (v:>int) f
 
 let[@inline] level_var self (v:Var.t) : int = Vec.get self.var_level (v:>int)
 let[@inline] level_lit self (x:Lit.t) : int = level_var self (Lit.var x)
@@ -626,16 +636,40 @@ let reduce_db self : unit =
   ()
 
 let var_bump_activity self (v:Var.t) : unit =
-  () (* TODO *)
+  let inc = self.var_inc in
+  let a = activity_var self v in
+  let a = a *. inc in
+  set_activity_var self v a;
+  if a > 1e100 then (
+    (* Rescale: *)
+    for i=0 to n_vars self-1 do
+      let v = Var.Internal.of_int i in
+      set_activity_var self v (1e-100 *. activity_var self v);
+    done;
+    self.var_inc <- self.var_inc *. 1e-100;
+  );
+  (* Update order_heap with respect to new activity: *)
+  if Heap.in_heap self.order_heap v then (
+    Heap.decrease self.order_heap v;
+  )
 
 let cla_bump_activity self (c:Cref.t) : unit =
-  () (* TODO *)
+  let act = Clause.activity self.ca c *. self.cla_inc in
+  Clause.set_activity self.ca c act;
+  if act > 1e20 then (
+    (* Rescale: *)
+    for i=0 to Vec.size self.learnts-1 do
+      let c = Vec.get self.learnts i in
+      Clause.set_activity self.ca c (Clause.activity self.ca c *. 1e-20);
+    done;
+    self.cla_inc <- self.cla_inc *. 1e-20;
+  )
 
 let var_decay_activity self : unit =
-  () (* TODO *)
+  self.var_inc <- 1. /. self.var_decay
 
 let cla_decay_activity self : unit =
-  () (* TODO *)
+  self.cla_inc <- 1. /. self.clause_decay
 
 let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
   Vec.clear self.analyze_stack;
@@ -861,10 +895,8 @@ let simplify self : bool =
     if self.remove_satisfied then (
       remove_satisfied self self.clauses;
     );
-    (* TODO:
-       check_garbage self;
-       rebuild_order_heap self;
-       *)
+    check_garbage self;
+    rebuild_order_heap self;
     self.simpDB_assigns <- n_assigns self;
     self.simpDB_props <- self.clause_literals + self.learnt_literals;
     true
@@ -1040,7 +1072,7 @@ let luby (y:float) (x:int) : float =
   y ** float_of_int seq
 
 let solve_ (self:t) : Lbool.t =
-  Printf.printf "solve\n";
+  (*Printf.printf "solve\n";*)
   Vec.clear self.model;
   Vec.clear self.conflict;
   if not self.ok then (

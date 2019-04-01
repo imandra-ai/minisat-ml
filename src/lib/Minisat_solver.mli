@@ -20,6 +20,13 @@ val n_clauses : t -> int
 val n_learnts : t -> int
 val n_vars : t -> int
 val n_free_vars : t -> int
+val n_starts : t -> int
+val n_conflicts : t -> int
+val n_propagations : t -> int
+val n_decisions : t -> int
+val n_rnd_decisions : t -> int
+val n_tot_literals : t -> int
+val n_max_literals : t -> int
 
 val simplify : t -> bool
 

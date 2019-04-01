@@ -160,7 +160,7 @@ module Make(T : ARG)
     Vec.clear_dealloc self.heap
 
   let build self (ns:elt Vec.t) : unit =
-    clear self;
+    Vec.clear self.heap;
     Vec.iteri
       (fun i (x:elt) ->
          Vec.set self.indices (x:>int) i;
