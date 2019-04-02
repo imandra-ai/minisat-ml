@@ -75,6 +75,10 @@ end = struct
   end
 end
 
+(*$T
+  Lit.is_undef Lit.undef
+*)
+
 module Lbool : sig
   type t = private int
   val true_ : t

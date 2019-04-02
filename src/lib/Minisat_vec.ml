@@ -57,12 +57,18 @@ let[@inline] pop self : unit = assert(self.sz>0); self.sz <- self.sz - 1
 let[@inline] blit v1 i1 v2 i2 len = Array.blit v1.data i1 v2.data i2 len
 
 let copy_to self ~into : unit =
-  into.data <- Array.sub self.data 0 self.sz;
+  if self.sz>0 then (
+    ensure into self.sz self.data.(0);
+    Array.blit self.data 0 into.data 0 self.sz;
+  );
   into.sz <- self.sz
 
 let move_to self ~into : unit =
   into.data <- self.data;
-  into.sz <- self.sz
+  into.sz <- self.sz;
+  self.data <- [||];
+  self.sz <- 0;
+  ()
 
 let[@inline] iteri f {data; sz} : unit =
   assert (sz <= Array.length data);

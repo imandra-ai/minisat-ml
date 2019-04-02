@@ -129,6 +129,8 @@ type t = {
   mutable propagation_budget : int; (* -1 means no budget. *)
 }
 
+let set_ccmin_mode self m = assert (m >= 0 && m <= 2); self.ccmin_mode <- m
+
 let[@inline] ok self = self.ok
 let[@inline] n_vars self : int = Vec.size self.var_level
 let[@inline] n_free_vars self : int =
@@ -550,7 +552,9 @@ let reloc_all (self:t) ~into : unit =
       let p = Lit.make_sign (Var.make v) (s=1) in
       let ws_c = Vec.get self.watches_cref (p:>int) in
       for j=0 to Vec.size ws_c-1 do
-        Vec.set ws_c j (Clause.reloc self.ca (Vec.get ws_c j) ~into)
+        let c = Vec.get ws_c j in
+        assert (Clause.mark self.ca c = 0); (* not deleted *)
+        Vec.set ws_c j (Clause.reloc self.ca c ~into)
       done;
     done;
   done;
@@ -797,13 +801,15 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
 
   self.max_literals <- self.max_literals + Vec.size out_learnt;
   Vec.shrink out_learnt !j;
+  assert (Vec.size out_learnt = !j);
   self.tot_literals <- self.tot_literals + Vec.size out_learnt;
 
   (* cleanup 'seen' *)
   Vec.iteri
     (fun _ p -> Vec.set self.seen ((Lit.var p):>int) false)
     self.analyze_toclear;
-  Vec.clear self.analyze_toclear;
+
+  assert (for i=0 to Vec.size self.seen-1 do assert (not @@ Vec.get self.seen i) done; true);
 
   (* Find correct backtrack level: *)
   if Vec.size out_learnt = 1 then (
@@ -976,7 +982,7 @@ let search self (nof_conflicts:int) : Lbool.t =
               (i self.max_learnts)
               (n_learnts self)
               (float_of_int self.learnt_literals /. float_of_int (n_learnts self))
-              (self.progress_estimate *. 100.);
+              (progress_estimate self *. 100.);
           );
 
         );

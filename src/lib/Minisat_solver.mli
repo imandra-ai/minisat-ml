@@ -33,6 +33,8 @@ val simplify : t -> bool
 val solve : t -> assumps:Lit.t Vec.t -> bool
 val solve_limited : t -> assumps:Lit.t Vec.t -> Lbool.t
 
+val set_ccmin_mode : t -> int -> unit
+
 val set_decision_var : t -> Var.t -> bool -> unit
 (** Set whether the variable is a eligible for decisions *)
 
