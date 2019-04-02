@@ -608,7 +608,7 @@ let check_garbage self : unit =
      > float_of_int (Clause.Alloc.size self.ca) *. self.garbage_frac
   then (
     garbage_collect self;
-    Gc.major();
+(*     Gc.major(); *)
   )
 
 (* reduceDB : ()  ->  [void]
@@ -1165,8 +1165,8 @@ let create(): t =
   (* heap of variables, ordered by activity (higher activity comes first) *)
   let order_heap =
     Heap.make
-      ~cmp:(fun v1 v2 ->
-          compare (Vec.get var_act (v2:>int)) (Vec.get var_act (v1:>int)))
+      ~less:(fun v1 v2 ->
+          Vec.get var_act (v1:>int) > Vec.get var_act (v2:>int))
   in
   let s = {
     verbosity=0;

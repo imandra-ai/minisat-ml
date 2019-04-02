@@ -24,7 +24,7 @@ module type S = sig
   type t
   type elt [@@ocaml.immediate]
 
-  val make : cmp:(elt -> elt -> int) -> t
+  val make : less:(elt -> elt -> bool) -> t
 
   val empty : t -> bool
   val in_heap : t -> elt -> bool
@@ -53,11 +53,11 @@ module type ARG = sig
 end
 
 module Make(T : ARG)
-(*   : S with type elt = T.t *)
+  : S with type elt = T.t
 = struct
   type elt = T.t
   type t = {
-    cmp: elt -> elt -> int;
+    less: elt -> elt -> bool;
     heap: elt Vec.t;
     indices: int Vec.t;
   }
@@ -66,7 +66,7 @@ module Make(T : ARG)
   let[@inline] right i = (i+1)*2
   let[@inline] parent i = (i-1) lsr 1
 
-  let make ~cmp : t = {cmp; heap=Vec.make(); indices=Vec.make()}
+  let make ~less : t = {less; heap=Vec.make(); indices=Vec.make()}
 
   let[@inline] empty self = Vec.size self.heap = 0
   let[@inline] in_heap self (i:elt) =
@@ -75,11 +75,11 @@ module Make(T : ARG)
   let[@inline] size self = Vec.size self.heap
   let[@inline] get self i = Vec.get self.heap i
 
-  let percolate_up {heap;indices;cmp} (i:int) : unit =
+  let percolate_up {heap;indices;less} (i:int) : unit =
     let x = Vec.get heap i in
     let p = parent i in
     let rec loop i p =
-      if i<>0 && cmp x (Vec.get heap p) < 0 then (
+      if i<>0 && less x (Vec.get heap p) then (
         Vec.set heap i (Vec.get heap p);
         Vec.set indices ((Vec.get heap p):>int) i;
         let i = p in
@@ -92,7 +92,7 @@ module Make(T : ARG)
     Vec.set indices (x:>int) i;
     ()
 
-  let percolate_down {heap;indices;cmp} (i:int) : unit =
+  let percolate_down {heap;indices;less} (i:int) : unit =
     let size = Vec.size heap in
     let x = Vec.get heap i in
     let rec loop i =
@@ -100,10 +100,10 @@ module Make(T : ARG)
         (* pick side: left or right *)
         let child =
           if right i < size &&
-             cmp (Vec.get heap (right i)) (Vec.get heap (left i)) < 0
+             less (Vec.get heap (right i)) (Vec.get heap (left i))
           then right i else left i
         in
-        if cmp (Vec.get heap child) x >= 0 then (
+        if not (less (Vec.get heap child) x) then (
           i (* break *)
         ) else (
           Vec.set heap i (Vec.get heap child);
@@ -125,9 +125,10 @@ module Make(T : ARG)
     Vec.grow_to self.indices ((n:>int)+1) ~-1;
     assert (not (in_heap self n));
     (* insert as a leaf, then percolate up to preserve heap property *)
-    Vec.set self.indices (n:>int) (Vec.size self.heap);
+    let i = Vec.size self.heap in
+    Vec.set self.indices (n:>int) i;
     Vec.push self.heap n;
-    percolate_up self (Vec.get self.indices (n:>int))
+    percolate_up self i
 
   let update self i =
     if not (in_heap self i) then (
