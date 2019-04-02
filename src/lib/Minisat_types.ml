@@ -167,7 +167,7 @@ module Cref : sig
   val is_undef : t -> bool
 end = struct
   type t = int
-  let undef : t = max_int
+  let undef : t = -1
   let is_undef c = c=undef
 end
 
@@ -317,7 +317,7 @@ end = struct
       done;
       !abs
 
-    let alloc_ self (lits:Lit.t array) offset (size:int) ~learnt : Cref.t =
+    let alloc_ self (lits:Lit.t array) lit_offset (size:int) ~learnt : Cref.t =
       let use_extra = self.extra_clause_field || learnt in
       let len = 1 + size + (__int_of_bool use_extra) in
       ensure_ self (self.sz + len);
@@ -329,7 +329,7 @@ end = struct
       let header = if use_extra then Header.set_has_extra header else header in
       (* copy header and lits *)
       self.memory.(cr) <- header;
-      Array.blit (Lit.to_int_a lits) offset self.memory (cr+1) size;
+      Array.blit (Lit.to_int_a lits) lit_offset self.memory (cr+1) size;
       if use_extra then (
         let extra =
           if learnt then (
@@ -340,7 +340,7 @@ end = struct
             self.act.(act_idx) <- 0.;
             act_idx
           ) else (
-            compute_abstraction_ lits offset size
+            compute_abstraction_ lits lit_offset size
           )
         in
         self.memory.(cr+1+size) <- extra;

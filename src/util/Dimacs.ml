@@ -123,7 +123,7 @@ let read_clause (self:t) (solver:Solver.t) (lits: Lit.t Vec.t) : unit =
     | i ->
       let v_idx = abs i - 1 in
       while v_idx >= Solver.n_vars solver do ignore (Solver.new_var solver:Var.t) done;
-      Vec.push lits (Lit.make_sign (Var.make v_idx) (i>0));
+      Vec.push lits (Lit.make_sign (Var.make v_idx) (i<0));
       aux()
   in
   aux()

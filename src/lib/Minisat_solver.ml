@@ -234,8 +234,8 @@ module Watch = struct
     ()
 
   let clean_all self : unit =
-    Vec.iteri
-      (fun _ (p:Lit.t) ->
+    Vec.iter
+      (fun (p:Lit.t) ->
          (* Dirties may contain duplicates so check here if a variable is already cleaned: *)
          if Vec.get self.watches_dirty (p:>int) then (
            clean self p
@@ -267,11 +267,12 @@ let new_var_ self ~polarity ~decision : Var.t =
   set_decision_var self v decision;
   v
 
-let new_var self = new_var_ self ~polarity:false ~decision:true
-let new_var' ?(polarity=false) ?(decision=true) self = new_var_ self ~polarity ~decision
+let new_var self = new_var_ self ~polarity:true ~decision:true
+let new_var' ?(polarity=true) ?(decision=true) self = new_var_ self ~polarity ~decision
 
 let unchecked_enqueue self (p:Lit.t) (reason: Cref.t) : unit =
   assert (Lbool.equal Lbool.undef @@ value_lit self p);
+  (*Printf.printf "enqueue %d (reason %d)\n" (Lit.to_int p) reason; *)
   let v_idx = (Lit.var p :> int) in
   Vec.set self.assigns v_idx (Lbool.of_bool (not (Lit.sign p)));
   Vec.set self.var_reason v_idx reason;
@@ -288,8 +289,9 @@ let[@inline] enqueue self (p:Lit.t) (from:Cref.t) : bool =
   )
 
 let attach_clause (self:t) (c:Cref.t) : unit =
-  (* Printf.printf "attach clause %d\n" c;
-  Array.iter (fun lit -> Printf.printf "  %d\n" (Lit.to_int lit)) (Clause.lits_a self.ca c);*)
+  (*Printf.printf "attach clause c%d:" c;
+  Array.iter (fun lit -> Printf.printf " %d" (Lit.to_int lit)) (Clause.lits_a self.ca c);
+  Printf.printf"\n";*)
   let h = Clause.header self.ca c in
   assert (CH.size h > 1);
   let c0 = Clause.lit self.ca c 0 in
@@ -305,6 +307,7 @@ let attach_clause (self:t) (c:Cref.t) : unit =
   )
 
 let detach_clause_ (self:t) ~strict (c:Cref.t) : unit =
+  (*Printf.printf "detach clause c%d\n" c; *)
   let h = Clause.header self.ca c in
   assert (CH.size h > 1);
   let c0 = Clause.lit self.ca c 0 in
@@ -327,7 +330,7 @@ let[@inline] detach_clause self c : unit = detach_clause_ self ~strict:false c
 (* Revert to the state at given level (keeping all assignment at 'level' but not beyond). *)
 let cancel_until self (level:int) : unit =
   if decision_level self > level then (
-    (* Printf.printf "cancel-until %d\n" level; *)
+    (*Printf.printf "cancel-until %d\n" level; *)
     let offset = Vec.get self.trail_lim level in
     for c = Vec.size self.trail-1 downto offset do
       let lit_c = Vec.get self.trail c in
@@ -405,44 +408,45 @@ let propagate (self:t) : Cref.t =
       if i=n then j
       else (
         let blocker = Vec.get ws_b i in
-        let c = Vec.get ws_c i in
+        let cr = Vec.get ws_c i in
+        (*Printf.printf "  watch p=%d cr=%d\n" (p:>int) cr; *)
         if Lbool.equal Lbool.true_ (value_lit self blocker) then (
           (* avoid inspecting the clause if blocker lit is true *)
           Vec.set ws_b j blocker;
-          Vec.set ws_c j c;
-          loop1 (i+1) (j+1)
+          Vec.set ws_c j cr;
+          (loop1[@tailcall]) (i+1) (j+1)
         ) else (
-          let ch = Clause.header self.ca c in
+          let ch = Clause.header self.ca cr in
           let false_lit = Lit.not p in
 
           (* ensure that [false_lit] is second in the clause *)
-          if Lit.equal false_lit (Clause.lit self.ca c 0) then (
-            Clause.swap_lits self.ca c 0 1;
+          if Lit.equal false_lit (Clause.lit self.ca cr 0) then (
+            Clause.swap_lits self.ca cr 0 1;
           );
-          assert (Lit.equal false_lit (Clause.lit self.ca c 1));
+          assert (Lit.equal false_lit (Clause.lit self.ca cr 1));
           let i = i+1 in
 
-          assert (not (Clause.reloced self.ca c));
-          let first = Clause.lit self.ca c 0 in
+          assert (not (Clause.reloced self.ca cr));
+          let first = Clause.lit self.ca cr 0 in
           if not (Lit.equal blocker first) &&
              Lbool.equal Lbool.true_ (value_lit self first) then (
             (* If 0th watch is true, then clause is already satisfied. *)
             Vec.set ws_b j first;
-            Vec.set ws_c j c;
+            Vec.set ws_c j cr;
             (loop1 [@tailcall]) i (j+1);
           ) else (
             (* Look for new watch: *)
             let[@unroll 2] rec find_w k =
               if k = CH.size ch then false
               else (
-                let ck = Clause.lit self.ca c k in
+                let ck = Clause.lit self.ca cr k in
                 if Lbool.equal Lbool.false_ (value_lit self ck) then (
                   (find_w[@tailcall]) (k+1) (* nope *)
                 ) else (
                   (* [k]-th lit is the new watch *)
-                  Clause.swap_lits self.ca c 1 k;
+                  Clause.swap_lits self.ca cr 1 k;
                   Vec.push (Vec.get self.watches_blocker ((Lit.not ck):>int)) first;
-                  Vec.push (Vec.get self.watches_cref ((Lit.not ck):>int)) c;
+                  Vec.push (Vec.get self.watches_cref ((Lit.not ck):>int)) cr;
                   true
                 )
               )
@@ -453,12 +457,12 @@ let propagate (self:t) : Cref.t =
             ) else (
               (* Did not find watch -- clause is unit under assignment: *)
               Vec.set ws_b j first;
-              Vec.set ws_c j c;
+              Vec.set ws_c j cr;
               let j = j+1 in
 
               if Lbool.equal Lbool.false_ (value_lit self first) then (
                 (* conflict *)
-                confl := c;
+                confl := cr;
                 self.qhead <- Vec.size self.trail;
                 (* Copy the remaining watches: *)
                 Vec.blit ws_b i ws_b j (n-i);
@@ -466,7 +470,7 @@ let propagate (self:t) : Cref.t =
                 j+(n-i)
               ) else (
                 (* propagate [first] *)
-                unchecked_enqueue self first c;
+                unchecked_enqueue self first cr;
                 (loop1 [@tailcall]) i j
               )
             )
@@ -538,6 +542,7 @@ let remove_clause self (c:Cref.t) : unit =
     Vec.set self.var_reason ((Lit.var (Clause.lit self.ca c 0)):>int) Cref.undef;
   );
   Clause.set_mark self.ca c 1;
+  assert (Clause.mark self.ca c = 1);
   Clause.Alloc.free self.ca c
 
 let[@inline] new_decision_level self : unit =
@@ -545,16 +550,19 @@ let[@inline] new_decision_level self : unit =
 
 let reloc_all (self:t) ~into : unit =
   (* All watchers: *)
+  (*Printf.printf "reloc all\n";*)
   Watch.clean_all self;
   for v = 0 to n_vars self -1 do
     for s = 0 to 1 do
-      (* printf(" >>> RELOCING: %s%d\n", sign(p)?"-":"", var(p)+1);*)
       let p = Lit.make_sign (Var.make v) (s=1) in
+      (*Printf.printf " >>> RELOCING: %s%d\n" (if Lit.sign p then "-" else "") ((Lit.var p:>int)+1);*)
       let ws_c = Vec.get self.watches_cref (p:>int) in
       for j=0 to Vec.size ws_c-1 do
         let c = Vec.get ws_c j in
         assert (Clause.mark self.ca c = 0); (* not deleted *)
-        Vec.set ws_c j (Clause.reloc self.ca c ~into)
+        let c2 = Clause.reloc self.ca c ~into in
+        (*Printf.printf "reloc %d into %d\n" c c2;*)
+        Vec.set ws_c j c2
       done;
     done;
   done;
@@ -682,6 +690,7 @@ let[@inline] cla_decay_activity self : unit =
   self.cla_inc <- self.cla_inc /. self.clause_decay
 
 let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
+  (*Printf.printf "lit-redundant? %d (abs-lvl %d)\n" (Lit.to_int p) ab_lvl; *)
   Vec.clear self.analyze_stack;
   Vec.push self.analyze_stack p;
   let top = Vec.size self.analyze_toclear in
@@ -769,6 +778,8 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
     let confl = reason_lit self p in
     set_seen self (Lit.var p) false;
     pathC := !pathC - 1;
+
+    (*Printf.printf "resolve-pivot: %d (pathC %d)\n" (Lit.to_int p) !pathC; *)
 
     if !pathC > 0 then (resolve_loop[@tailcall]) ~pathC ~p ~index ~confl
     else p
@@ -956,6 +967,7 @@ let search self (nof_conflicts:int) : Lbool.t =
         Vec.clear learnt_clause;
         let backtrack_level = analyze self confl learnt_clause in
         cancel_until self backtrack_level;
+        (*Printf.printf "learnt.size %d\n" (Vec.size learnt_clause);*)
 
         (* propagate negation of UIP *)
         if Vec.size learnt_clause = 1 then (
@@ -993,7 +1005,7 @@ let search self (nof_conflicts:int) : Lbool.t =
           );
 
         );
-        loop ~conflictC
+        (loop[@tailcall]) ~conflictC
       )
     ) else (
       (* no conflict *)
@@ -1044,8 +1056,9 @@ let search self (nof_conflicts:int) : Lbool.t =
           Lbool.true_ (* model found *)
         ) else (
           new_decision_level self;
+          (*Printf.printf "decide %d (lvl %d)\n" (Lit.to_int next) (decision_level self); *)
           unchecked_enqueue self next Cref.undef;
-          loop ~conflictC
+          (loop[@tailcall])  ~conflictC
         )
       )
     )
