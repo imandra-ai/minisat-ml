@@ -304,7 +304,7 @@ end = struct
         let new_cap = min Sys.max_array_length (max min_cap (cap + 2 + cap lsr 1)) in
         if new_cap < min_cap then raise_notrace Out_of_memory; (* too big *)
         let new_act = Array.create_float new_cap in
-        Array.blit new_act 0 a.act 0 a.sz_act;
+        Array.blit a.act 0 new_act 0 a.sz_act;
         a.act <- new_act;
       )
 
