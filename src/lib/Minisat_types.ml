@@ -161,30 +161,10 @@ end
   not Lbool.(equal true_ false_)
 *)
 
-module Cref : sig
-  type t = int
-  val undef : t
-  val is_undef : t -> bool
-end = struct
-  type t = int
-  let undef : t = -1
-  let is_undef c = c=undef
-end
-
 exception Early_return_true
 exception Early_return_false
 
 module Clause : sig
-  module Alloc : sig
-    type t
-    val make : ?start:int -> unit -> t 
-    val wasted : t -> int
-    val size : t -> int
-    val alloc : t -> Lit.t Vec.t -> learnt:bool -> Cref.t
-    val free : t -> Cref.t -> unit
-    val move_to : t -> into:t -> unit
-  end
-
   module Header : sig
     type t [@@ocaml.immediate]
     val mark : t -> int
@@ -197,37 +177,45 @@ module Clause : sig
     val make_ : learnt:bool -> int -> t
   end
 
-  val header : Alloc.t -> Cref.t -> Header.t
-  val set_header : Alloc.t -> Cref.t -> Header.t -> unit
-  val size : Alloc.t -> Cref.t -> int
-  val lit : Alloc.t -> Cref.t -> int -> Lit.t
-  val learnt : Alloc.t -> Cref.t -> bool
-  val activity : Alloc.t -> Cref.t -> float
-  val set_activity : Alloc.t -> Cref.t -> float -> unit
-  val mark : Alloc.t -> Cref.t -> int
-  val set_mark : Alloc.t -> Cref.t -> int -> unit (* 2 bits *)
-
-  val lits_a : Alloc.t -> Cref.t -> Lit.t array
-  val swap_lits: Alloc.t -> Cref.t -> int -> int -> unit
-  val exists : Alloc.t -> Cref.t -> (Lit.t -> bool) -> bool
-  val for_all : Alloc.t -> Cref.t -> (Lit.t -> bool) -> bool
-
-  val reloced : Alloc.t -> Cref.t -> bool
-  val relocation : Alloc.t -> Cref.t -> Cref.t
-  val reloc : Alloc.t -> Cref.t -> into:Alloc.t -> Cref.t
-end = struct
-  (* we imitate Minisat's allocator, but cannot fit both integers and floats
-     in a single array.
-     Therefore we have a separate array for the activity. *)
-  type alloc = {
-    mutable memory: int array; (* large array *)
-    mutable sz: int;
-    mutable act: float array;
-    mutable sz_act: int;
-    mutable wasted: int;
-    mutable extra_clause_field: bool;
+  type t = private {
+    mutable header: Header.t;
+    mutable offset: int; (* in the allocator *)
+    mutable activity: float; (* only useful for learnt clauses *)
   }
+  type clause = t
 
+  module Alloc : sig
+    type t
+    val make : ?start:int -> unit -> t 
+    val wasted : t -> int
+    val size : t -> int
+    val alloc : t -> Lit.t Vec.t -> learnt:bool -> clause
+    val free : t -> clause -> unit
+    val move_to : t -> into:t -> unit
+  end
+
+  val undef : t
+  val is_undef : t -> bool
+
+  val header : t -> Header.t
+  val set_header : t -> Header.t -> unit
+  val size : t -> int
+  val lit : Alloc.t -> t -> int -> Lit.t
+  val learnt : t -> bool
+  val activity : t -> float
+  val set_activity : t -> float -> unit
+  val mark : t -> int
+  val set_mark : t -> int -> unit (* 2 bits *)
+
+  val lits_a : Alloc.t -> t -> Lit.t array
+  val swap_lits: Alloc.t -> t -> int -> int -> unit
+  val exists : Alloc.t -> t -> (Lit.t -> bool) -> bool
+  val for_all : Alloc.t -> t -> (Lit.t -> bool) -> bool
+
+  val reloced : t -> bool
+  val reloc : Alloc.t -> t -> into:Alloc.t -> unit
+  val reset_reloced : t -> unit
+end = struct
   module Header = struct
     (* layout:
        field      size     offset
@@ -253,10 +241,41 @@ end = struct
     let[@inline] set_has_extra h = h lor (1 lsl 28)
     let[@inline] reloced h = ((h lsr 27) land 1) <> 0
     let[@inline] set_reloced h = h lor (1 lsl 27)
+    let[@inline] set_not_reloced h = h land (lnot (1 lsl 27))
     let[@inline] make_ ~learnt size = assert (size<m_size); if learnt then size lor (1 lsl 29) else size
     let[@inline] size (h:t) : int = h land m_size
     let[@inline] set_size h sz : t = (h land (lnot m_size)) lor sz
   end
+
+  (** A clause.
+      The clause is a header+activity, and an offset in the allocator,
+      pointing to a slice of integers in [allocator.memory] with the following
+      layout:
+
+       t
+         |
+         v
+      [lit0; lit1; …; lit_{size-1}; abstraction?]
+
+      where the last slot is there only if [header.has_extra] and is
+      an abtraction of the clause literals.
+  *)
+  type t = {
+    mutable header: Header.t;
+    mutable offset: int; (* in the allocator *)
+    mutable activity: float; (* only useful for learnt clauses *)
+  }
+
+  (* we imitate Minisat's allocator, but with a proper type for clauses
+     as it's going to save a ton of bound checks and accesses.
+     Besides we can't put activity in the allocator itself *)
+  type alloc = {
+    mutable memory: int array; (* large array *)
+    mutable sz: int;
+    mutable wasted: int;
+    mutable extra_clause_field: bool;
+  }
+  type clause = t
 
   module Alloc = struct
     type t = alloc
@@ -264,14 +283,12 @@ end = struct
     let make ?(start=1024 * 1024) () : t =
       { memory=Array.make start (-1);
         sz=0;
-        act= [| |]; sz_act=0;
         wasted=0;
         extra_clause_field=false;
       }
 
     let[@inline] size self = self.sz
     let[@inline] wasted self = self.wasted
-    let[@inline] cap_act a = Array.length a.act
 
     (* ensure that capacity is at least [min_cap] *)
     let ensure_ self (min_cap:int) : unit =
@@ -297,17 +314,6 @@ end = struct
         done;
       )
 
-    (* ensure activity array is at least [min_cap] *)
-    let ensure_act_cap_ a (min_cap:int) =
-      let cap = cap_act a in
-      if cap < min_cap then (
-        let new_cap = min Sys.max_array_length (max min_cap (cap + 2 + cap lsr 1)) in
-        if new_cap < min_cap then raise_notrace Out_of_memory; (* too big *)
-        let new_act = Array.create_float new_cap in
-        Array.blit a.act 0 new_act 0 a.sz_act;
-        a.act <- new_act;
-      )
-
     (* abstraction of the literals *)
     let compute_abstraction_ lits offset size : int =
       let abs = ref 0 in
@@ -317,109 +323,71 @@ end = struct
       done;
       !abs
 
-    let alloc_ self (lits:Lit.t array) lit_offset (size:int) ~learnt : Cref.t =
-      let use_extra = self.extra_clause_field || learnt in
+    let alloc_ self (lits:Lit.t array) lits_offset (size:int) ~learnt : clause =
+      let use_extra = not learnt && self.extra_clause_field in
       let len = 1 + size + (__int_of_bool use_extra) in
       ensure_ self (self.sz + len);
       (*Printf.printf "alloc lits (len %d) offset %d size %d (self: len %d sz %d)\n"
         (Array.length lits) offset size (Array.length self.memory) self.sz;*)
-      let cr = self.sz in
+      let offset = self.sz in
       self.sz <- self.sz + len;
       let header = Header.make_ ~learnt size in
       let header = if use_extra then Header.set_has_extra header else header in
-      (* copy header and lits *)
-      self.memory.(cr) <- header;
-      Array.blit (Lit.to_int_a lits) lit_offset self.memory (cr+1) size;
+      (* copy lits *)
+      Array.blit (Lit.to_int_a lits) lits_offset self.memory offset size;
       if use_extra then (
-        let extra =
-          if learnt then (
-            (* allocate index in [self.act], set it to [0.], return the index *)
-            ensure_act_cap_ self (self.sz_act+1);
-            let act_idx = self.sz_act in
-            self.sz_act <- 1 + self.sz_act;
-            self.act.(act_idx) <- 0.;
-            act_idx
-          ) else (
-            compute_abstraction_ lits lit_offset size
-          )
-        in
-        self.memory.(cr+1+size) <- extra;
+        assert (not learnt);
+        let extra = compute_abstraction_ lits lits_offset size in
+        self.memory.(offset+size) <- extra;
       );
-      cr
+      { offset; header; activity=0.}
 
-    let alloc self (lits:Lit.t Vec.t) ~learnt : Cref.t =
+    let alloc self (lits:Lit.t Vec.t) ~learnt : clause =
       alloc_ self (Vec.Internal.data lits) 0 (Vec.size lits) ~learnt
 
     let[@inline] free_ self size : unit = self.wasted <- size + self.wasted
 
-    let free self (c:Cref.t) : unit =
-      let h = Array.unsafe_get self.memory c in
-      let size = 1 + Header.size h + (__int_of_bool (Header.has_extra h)) in
+    let free self (c:clause) : unit =
+      let size = Header.size c.header + (__int_of_bool (Header.has_extra c.header)) in
       free_ self size
 
     let move_to self ~into : unit =
       (*Printf.printf "ca.move_to\n";*)
       into.memory <- self.memory;
       into.sz <- self.sz;
-      into.act <- self.act;
-      into.sz_act <- self.sz_act;
       into.wasted <- self.wasted;
       self.memory <- [| |];
-      self.act <- [| |];
       self.wasted <- 0;
       self.sz <- 0;
-      self.sz_act <- 0;
       ()
   end
 
-  (** A clause.
-      The clause is actually an offset in the allocator, pointing to a slice of
-      integers in [allocator.memory] with the following layout:
+  let undef = {header=Header.make_ ~learnt:false 0; offset=max_int; activity=nan}
+  let[@inline] is_undef c = c == undef
 
-       Cref.t
-         |
-         v
-      [header; lit0; lit1; …; lit_{size-1}; (abstraction | activity_index)?]
+  let[@inline] header (c:t) : Header.t = c.header
+  let[@inline] set_header (c:t) (h:Header.t) : unit = c.header <- h
+  let[@inline] size c = Header.size c.header
+  let[@inline] learnt c = Header.learnt c.header
 
-      where the last slot is there only if [header.has_extra] and is
-      either an offset in [allocator.act] if [header.learnt=true], or
-      an abtraction of the clause literals otherwise.
-  *)
-
-  let[@inline] header (a:alloc) (r:Cref.t) : Header.t = Array.unsafe_get a.memory r
-  let[@inline] set_header (a:alloc) (r:Cref.t) (h:Header.t) : unit =
-    Array.unsafe_set a.memory r h
-  let[@inline] size a c = Header.size (header a c)
-  let[@inline] learnt a c = Header.learnt (header a c)
-
-  let[@inline] get_data_ a (c:Cref.t) (i:int) : int = Array.unsafe_get a.memory (c+1+i)
-  let[@inline] set_data_ a (c:Cref.t) (i:int) (x:int) : unit =
-    Array.unsafe_set a.memory (c+1+i) x
+  let[@inline] get_data_ a (c:t) (i:int) : int = Array.unsafe_get a.memory (c.offset+i)
+  let[@inline] set_data_ a (c:t) (i:int) (x:int) : unit = Array.unsafe_set a.memory (c.offset+i) x
 
   let extra_data_ a c : int =
-    let h = header a c in
-    assert (Header.has_extra h);
-    get_data_ a c (Header.size h)
+    assert (Header.has_extra c.header);
+    get_data_ a c (Header.size c.header)
 
-  let[@inline] lit a (c:Cref.t) i : Lit.t = Lit.Internal.of_int (get_data_ a c i)
+  let[@inline] lit a (c:t) i : Lit.t = Lit.Internal.of_int (get_data_ a c i)
 
-  let activity a (c:Cref.t): float =
-    let idx = extra_data_ a c in
-    Array.unsafe_get a.act (idx)
+  let[@inline] activity (c:t): float = c.activity
+  let[@inline] set_activity (c:t) (f:float) : unit = c.activity <- f
 
-  let set_activity a (c:Cref.t) (f:float) : unit =
-    let idx = extra_data_ a c in
-    Array.unsafe_set a.act idx f
-
-  let[@inline] mark a c : int = Header.mark (header a c)
-  let set_mark a c m : unit =
-    let h = header a c in
-    set_header a c (Header.set_mark h m)
+  let[@inline] mark c : int = Header.mark (header c)
+  let[@inline] set_mark c m : unit = c.header <- Header.set_mark c.header m
 
   (* obtain literals *)
   let lits_a a c =
-    let h = header a c in
-    Lit.Internal.of_int_a (Array.sub a.memory (c+1) (Header.size h))
+    Lit.Internal.of_int_a (Array.sub a.memory c.offset (size c))
 
   let swap_lits a c i j =
     if i<>j then (
@@ -429,45 +397,37 @@ end = struct
     )
 
   let[@specialise] for_all a c f : bool =
-    let h = header a c in
     try
-      for i = 0 to Header.size h - 1 do
+      for i = 0 to Header.size c.header - 1 do
         if not (f (lit a c i)) then raise_notrace Early_return_false
       done;
       true
     with Early_return_false -> false
 
   let[@specialise] exists a c f : bool =
-    let h = header a c in
     try
-      for i = 0 to Header.size h - 1 do
+      for i = 0 to Header.size c.header - 1 do
         if f (lit a c i) then raise_notrace Early_return_true
       done;
       false
     with Early_return_true -> true
 
-  let[@inline] reloced a c = Header.reloced (header a c)
-  let[@inline] relocation a c : Cref.t = get_data_ a c 0
+  let[@inline] reloced c = Header.reloced c.header
+  let set_reloced c = set_header c (Header.set_reloced c.header)
+  let reset_reloced c = set_header c (Header.set_not_reloced c.header)
 
-  let reloc (a:Alloc.t) (c:Cref.t) ~into : Cref.t =
-    let h = header a c in
-    if Header.reloced h then (
-      relocation a c
-    ) else (
+  let reloc (a:Alloc.t) (c:t) ~into : unit =
+    if not (Header.reloced c.header) then (
       (* allocate copy of [c] *)
       (*Printf.printf "reloc c%d [len %d]\n" c (Header.size h);*)
-      let c2: Cref.t =
+      let c2: t =
         Alloc.alloc_ into
-          (Lit.Internal.of_int_a a.memory) (c+1) (Header.size h)
-          ~learnt:(Header.learnt h) in
-      set_header a c (Header.set_reloced h);
-      set_data_ a c 0 c2; (* first lit --> into *)
-      set_mark into c2 (Header.mark h);
-      if Header.learnt h then (
-        set_activity into c2 (activity a c);
-      );
+          (Lit.Internal.of_int_a a.memory) c.offset (Header.size c.header)
+          ~learnt:(Header.learnt c.header) in
+      set_reloced c;
+      c.offset <- c2.offset;
       (* TODO: check that if [has_extra h] then abstraction is recomputed properly *)
-      c2
+      ()
     )
 end
 
