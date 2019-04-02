@@ -4,4 +4,4 @@
   (public_name minisat-ml)
   (wrapped false)
   (inline_tests (backend qtest.lib))
-  (flags (:standard -warn-error -27-32-33-34)))
+  (flags (:standard -warn-error -27-32-33-34 -noassert)))

@@ -169,4 +169,4 @@ module Make(T : ARG)
     for i= (Vec.size self.heap/2)-1 downto 0 do
       percolate_down self i
     done
-end
+end[@@inline]

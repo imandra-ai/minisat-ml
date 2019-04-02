@@ -353,7 +353,7 @@ end = struct
     let[@inline] free_ self size : unit = self.wasted <- size + self.wasted
 
     let free self (c:Cref.t) : unit =
-      let h = self.memory.(c) in
+      let h = Array.unsafe_get self.memory c in
       let size = 1 + Header.size h + (__int_of_bool (Header.has_extra h)) in
       free_ self size
 
@@ -386,13 +386,15 @@ end = struct
       an abtraction of the clause literals otherwise.
   *)
 
-  let[@inline] header (a:alloc) (r:Cref.t) : Header.t = a.memory.(r)
-  let[@inline] set_header (a:alloc) (r:Cref.t) (h:Header.t) : unit = a.memory.(r) <- h
+  let[@inline] header (a:alloc) (r:Cref.t) : Header.t = Array.unsafe_get a.memory r
+  let[@inline] set_header (a:alloc) (r:Cref.t) (h:Header.t) : unit =
+    Array.unsafe_set a.memory r h
   let[@inline] size a c = Header.size (header a c)
   let[@inline] learnt a c = Header.learnt (header a c)
 
-  let[@inline] get_data_ a (c:Cref.t) (i:int) : int = a.memory.(c+1+i)
-  let[@inline] set_data_ a (c:Cref.t) (i:int) (x:int) : unit = a.memory.(c+1+i) <- x
+  let[@inline] get_data_ a (c:Cref.t) (i:int) : int = Array.unsafe_get a.memory (c+1+i)
+  let[@inline] set_data_ a (c:Cref.t) (i:int) (x:int) : unit =
+    Array.unsafe_set a.memory (c+1+i) x
 
   let extra_data_ a c : int =
     let h = header a c in
@@ -403,11 +405,11 @@ end = struct
 
   let activity a (c:Cref.t): float =
     let idx = extra_data_ a c in
-    a.act.(idx)
+    Array.unsafe_get a.act (idx)
 
   let set_activity a (c:Cref.t) (f:float) : unit =
     let idx = extra_data_ a c in
-    a.act.(idx) <- f
+    Array.unsafe_set a.act idx f
 
   let[@inline] mark a c : int = Header.mark (header a c)
   let set_mark a c m : unit =
