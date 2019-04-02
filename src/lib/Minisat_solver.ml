@@ -528,8 +528,8 @@ let add_clause self (ps:Lit.t Vec.t) : bool =
 (* is the clause locked (is it the reason a literal is propagated)? *)
 let locked self (c:Cref.t) : bool =
   let c0 = Clause.lit self.ca c 0 in
-  Lbool.equal Lbool.true_ (value_var self (Lit.var c0)) &&
-  c = reason_var self (Lit.var c0)
+  Lbool.equal Lbool.true_ (value_lit self c0) &&
+  c = reason_lit self c0
 
 let remove_clause self (c:Cref.t) : unit =
   (*Printf.printf "remove clause %d\n" c; *)
@@ -621,18 +621,18 @@ let reduce_db self : unit =
         Clause.activity self.ca x < Clause.activity self.ca y))
     self.learnts;
 
+  let n = Vec.size self.learnts in
   (* Remove any clause below this activity *)
-  let extra_lim = self.cla_inc /. float_of_int (Vec.size self.learnts) in
+  let extra_lim = self.cla_inc /. float_of_int n in
   (*Printf.printf "cla-inc: %.5f  extra-lim: %.5f  learnts.size: %d\n"
     self.cla_inc extra_lim (Vec.size self.learnts);*)
   let j = ref 0 in
-  let n = Vec.size self.learnts in
   for i=0 to n-1 do
     let c = Vec.get self.learnts i in
     if Clause.size self.ca c > 2 && not (locked self c) &&
        (i < n / 2 || Clause.activity self.ca c < extra_lim) then (
-      (*Printf.printf "remove clause (size %d, act %.5f)\n"
-        (Clause.size self.ca c) (Clause.activity self.ca c);*)
+      (*Printf.printf "remove clause c%d (size %d, act %.5f, cla-inc %.2f, idx %d/%d)\n"
+        c (Clause.size self.ca c) (Clause.activity self.ca c) self.cla_inc i n;*)
       remove_clause self c;
     ) else (
       Vec.set self.learnts !j c;
@@ -662,6 +662,7 @@ let var_bump_activity self (v:Var.t) : unit =
 let cla_bump_activity self (c:Cref.t) : unit =
   let act = Clause.activity self.ca c +. self.cla_inc in
   Clause.set_activity self.ca c act;
+  (*Printf.printf "set-activity c%d %.3f\n" c act;*)
   if act > 1e20 then (
     (* Rescale: *)
     for i=0 to Vec.size self.learnts-1 do
@@ -670,6 +671,9 @@ let cla_bump_activity self (c:Cref.t) : unit =
     done;
     self.cla_inc <- self.cla_inc *. 1e-20;
   )
+
+let[@inline] seen self (v:Var.t) : bool = Vec.get self.seen (v:>int)
+let[@inline] set_seen self (v:Var.t) b : unit = Vec.set self.seen (v:>int) b
 
 let[@inline] var_decay_activity self : unit =
   self.var_inc <- self.var_inc /. self.var_decay
@@ -691,18 +695,18 @@ let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
 
       for i=1 to CH.size h-1 do
         let p = Clause.lit self.ca c i in
-        if not (Vec.get self.seen ((Lit.var p):>int)) && level_lit self p>0 then (
+        if not (seen self (Lit.var p)) && level_lit self p>0 then (
           if not (Cref.is_undef (reason_lit self p)) &&
              (abstract_level self (Lit.var p) land ab_lvl) <> 0
           then (
-            Vec.set self.seen ((Lit.var p):>int) true;
+            set_seen self (Lit.var p) true;
             Vec.push self.analyze_stack p;
             Vec.push self.analyze_toclear p;
           ) else (
             (* cannot be eliminated, not involved in conflict.
                restore to input state + return false. *)
             for j = top to Vec.size self.analyze_toclear-1 do
-              Vec.set self.seen ((Lit.var (Vec.get self.analyze_toclear j)):>int) false;
+              set_seen self (Lit.var (Vec.get self.analyze_toclear j)) false;
             done;
             Vec.shrink self.analyze_toclear top;
             raise_notrace Early_return_false
@@ -727,6 +731,7 @@ let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
  *)
 let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
   assert (Vec.empty out_learnt);
+  (*assert (for i=0 to Vec.size self.seen-1 do assert (not (Vec.get self.seen i)) done; true); *)
   Vec.push out_learnt Lit.undef; (* leave room for asserting lit *)
 
   let rec resolve_loop ~pathC ~p ~index ~confl : Lit.t =
@@ -739,9 +744,9 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
     for j = (if Lit.is_undef p then 0 else 1) to CH.size h - 1 do
       let q = Clause.lit self.ca confl j in
 
-      if not (Vec.get self.seen ((Lit.var q):>int)) && level_lit self q > 0 then (
+      if not (seen self (Lit.var q)) && level_lit self q > 0 then (
         var_bump_activity self (Lit.var q);
-        Vec.set self.seen ((Lit.var q):>int) true;
+        set_seen self (Lit.var q) true;
 
         if level_lit self q >= decision_level self then (
           pathC := !pathC + 1; (* need to resolve this away *)
@@ -755,14 +760,14 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
     let index =
       let rec loop i =
         let v = Lit.var (Vec.get self.trail i) in
-        if Vec.get self.seen (v:>int) then i-1 else loop (i-1)
+        if seen self v then i-1 else loop (i-1)
       in
       loop index
     in
 
     let p = Vec.get self.trail (index+1) in
     let confl = reason_lit self p in
-    Vec.set self.seen ((Lit.var p):>int) false;
+    set_seen self (Lit.var p) false;
     pathC := !pathC - 1;
 
     if !pathC > 0 then (resolve_loop[@tailcall]) ~pathC ~p ~index ~confl
@@ -801,15 +806,15 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
 
   self.max_literals <- self.max_literals + Vec.size out_learnt;
   Vec.shrink out_learnt !j;
-  assert (Vec.size out_learnt = !j);
   self.tot_literals <- self.tot_literals + Vec.size out_learnt;
+  assert (Vec.size out_learnt >= 1);
 
   (* cleanup 'seen' *)
-  Vec.iteri
-    (fun _ p -> Vec.set self.seen ((Lit.var p):>int) false)
+  Vec.iter
+    (fun p -> set_seen self (Lit.var p) false)
     self.analyze_toclear;
 
-  assert (for i=0 to Vec.size self.seen-1 do assert (not @@ Vec.get self.seen i) done; true);
+  (*assert (for i=0 to Vec.size self.seen-1 do assert (not @@ Vec.get self.seen i) done; true);*)
 
   (* Find correct backtrack level: *)
   if Vec.size out_learnt = 1 then (
@@ -824,8 +829,10 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
     done;
     (* Swap-in this literal at index 1: *)
     let p = Vec.get out_learnt !max_i in
-    Vec.set out_learnt !max_i (Vec.get out_learnt 1);
-    Vec.set out_learnt 1 p;
+    if !max_i > 1 then (
+      Vec.set out_learnt !max_i (Vec.get out_learnt 1);
+      Vec.set out_learnt 1 p;
+    );
     level_lit self p
   )
 
@@ -839,11 +846,11 @@ let analyze_final self (p:Lit.t) (out_conflict: Lit.t Vec.t) : unit =
   Vec.push out_conflict p;
 
   if decision_level self > 0 then (
-    Vec.set self.seen ((Lit.var p):>int) true;
+    set_seen self (Lit.var p) true;
     for i = Vec.size self.trail-1 downto Vec.get self.trail_lim 0 do
       let p = Vec.get self.trail i in
       let x = Lit.var p in
-      if Vec.get self.seen (x:>int) then (
+      if seen self x then (
         let c = reason_var self x in
         if Cref.is_undef c then (
           (* decision (ie assumption), push it *)
@@ -855,14 +862,14 @@ let analyze_final self (p:Lit.t) (out_conflict: Lit.t Vec.t) : unit =
             let vj = Lit.var (Clause.lit self.ca c j) in
             (* conflict resolution with lits that propagated [p] *)
             if level_var self vj > 0 then (
-              Vec.set self.seen (vj:>int) true;
+              set_seen self vj true;
             );
           done;
         );
-        Vec.set self.seen (x:>int) false;
+        set_seen self x false;
       )
     done;
-    Vec.set self.seen ((Lit.var p):>int) false;
+    set_seen self (Lit.var p) false;
   )
 
 let satisfied self (c:Cref.t) : bool =
@@ -957,7 +964,7 @@ let search self (nof_conflicts:int) : Lbool.t =
         ) else (
           let c = Clause.Alloc.alloc self.ca learnt_clause ~learnt:true in
           Vec.push self.learnts c;
-          attach_clause self c;
+          attach_clause self c; (* can attach directly, 2 first lits are correct watches *)
           cla_bump_activity self c;
           unchecked_enqueue self (Vec.get learnt_clause 0) c;
         );
