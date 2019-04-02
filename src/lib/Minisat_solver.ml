@@ -1086,10 +1086,10 @@ let solve_ (self:t) : Lbool.t =
     self.learntsize_adjust_cnt <- int_of_float self.learntsize_adjust_confl;
 
     if self.verbosity >= 1 then (
-      Printf.printf("============================[ Search Statistics ]==============================\n");
-      Printf.printf("| Conflicts |          ORIGINAL         |          LEARNT          | Progress |\n");
-      Printf.printf("|           |    Vars  Clauses Literals |    Limit  Clauses Lit/Cl |          |\n");
-      Printf.printf("===============================================================================\n");
+      Printf.printf "============================[ Search Statistics ]==============================\n";
+      Printf.printf "| Conflicts |          ORIGINAL         |          LEARNT          | Progress |\n";
+      Printf.printf "|           |    Vars  Clauses Literals |    Limit  Clauses Lit/Cl |          |\n";
+      Printf.printf "===============================================================================\n";
     );
 
     (* search until budget is exhausted, or status is true/false *)
@@ -1098,7 +1098,7 @@ let solve_ (self:t) : Lbool.t =
         if self.luby_restart then luby self.restart_inc curr_restarts
         else self.restart_inc ** (float_of_int curr_restarts)
       in
-      let status = search self (int_of_float rest_base * self.restart_first) in
+      let status = search self (int_of_float (rest_base *. float_of_int self.restart_first)) in
       if not (within_budget self) then status (* break *)
       else if Lbool.equal Lbool.undef status
       then loop_search ~curr_restarts:(curr_restarts+1)

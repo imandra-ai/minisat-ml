@@ -56,7 +56,7 @@ let () =
   ] |> Arg.align
   in
   Arg.parse opts (fun f -> files := f :: !files) "usage: minisat [opt]* <file>";
-  Minisat_ml_util.setup_gc();
+(*   Minisat_ml_util.setup_gc(); *)
   (* TODO: setup mem/cpu limit using the GC *)
   if !files=[] then process_stdin ~verb:!verb ()
   else List.iter (process_file ~verb:!verb) @@ List.rev !files;
