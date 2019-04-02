@@ -27,6 +27,7 @@ val move_to : 'a t -> into:'a t -> unit
 
 val blit : 'a t -> int -> 'a t -> int -> int -> unit
 
+val iter : ('a -> unit) -> 'a t -> unit
 val iteri : (int -> 'a -> unit) -> 'a t -> unit
 
 module Internal : sig
