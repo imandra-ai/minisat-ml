@@ -4,4 +4,6 @@
   (public_name minisat-ml)
   (wrapped false)
   (inline_tests (backend qtest.lib))
-  (flags (:standard -warn-error -27-32-33-34 -noassert)))
+  (flags (:standard -warn-error -27-32-33-34 -noassert))
+  (ocamlopt_flags :standard -O3 -bin-annot
+                  -unbox-closures -unbox-closures-factor 20))

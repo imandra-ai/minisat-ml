@@ -4,5 +4,7 @@
   (modes native)
   (public_name minisat-ml)
   (flags :standard -warn-error -27-32-33-34)
+  (ocamlopt_flags :standard -O3 -bin-annot
+                  -unbox-closures -unbox-closures-factor 20)
   (libraries bytes unix minisat-ml minisat-ml.util))
 
