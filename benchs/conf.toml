@@ -1,5 +1,5 @@
 
-provers = [ "minisat-ml", "minisat" ]
+provers = [ "minisat-ml", "minisat", "msat" ]
 
 [minisat-ml]
 
@@ -18,11 +18,19 @@ sat = "^SATISFIABLE"
 unknown = "INDETERMINATE"
 version = "2.2"
 
+[msat]
+
+cmd = "msat -time $timeout $file"
+unsat = "^Unsat"
+sat = "^Sat"
+unknown = "Unknown"
+version = "0.8"
+
 [test]
 
 timeout=30
 problems = ".*\\.cnf\\.*"
-provers = [ "minisat-ml", "minisat" ]
+provers = [ "minisat-ml", "minisat", "msat" ]
 dir = [ "benchs/msat/" ]
 
 expect = "program:minisat"
