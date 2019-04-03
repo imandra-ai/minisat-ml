@@ -381,6 +381,8 @@ let pick_branch_lit self : Lit.t =
        else Vec.get self.polarity (next:>int))
   )
 
+exception Found_watch
+
 (* Description:
    Propagates all enqueued facts. If a conflict arises, the conflicting clause is returned,
    otherwise [Cref.undef].
@@ -404,83 +406,78 @@ let propagate (self:t) : Cref.t =
 
     (* traverse watch list with index [i]. [j <= i] is position of last
        alive watch. returns j. *)
-    let rec loop1 i j : int =
-      if i=n then j
-      else (
-        let blocker = Vec.get ws_b i in
-        let cr = Vec.get ws_c i in
-        (*Printf.printf "  watch p=%d cr=%d\n" (p:>int) cr; *)
-        if Lbool.equal Lbool.true_ (value_lit self blocker) then (
-          (* avoid inspecting the clause if blocker lit is true *)
-          Vec.set ws_b j blocker;
-          Vec.set ws_c j cr;
-          (loop1[@tailcall]) (i+1) (j+1)
+    let i=ref 0 in
+    let j=ref 0 in
+    while !i < n do
+      let blocker = Vec.get ws_b !i in
+      let cr = Vec.get ws_c !i in
+      (*Printf.printf "  watch p=%d cr=%d\n" (p:>int) cr; *)
+      if Lbool.equal Lbool.true_ (value_lit self blocker) then (
+        (* avoid inspecting the clause if blocker lit is true *)
+        Vec.set ws_b !j blocker;
+        Vec.set ws_c !j cr;
+        i := !i + 1;
+        j := !j + 1;
+      ) else (
+        let ch = Clause.header self.ca cr in
+        let false_lit = Lit.not p in
+
+        (* ensure that [false_lit] is second in the clause *)
+        if Lit.equal false_lit (Clause.lit self.ca cr 0) then (
+          Clause.swap_lits self.ca cr 0 1;
+        );
+        assert (Lit.equal false_lit (Clause.lit self.ca cr 1));
+        i := !i + 1;
+
+        assert (not (Clause.reloced self.ca cr));
+        let first = Clause.lit self.ca cr 0 in
+        if not (Lit.equal blocker first) &&
+           Lbool.equal Lbool.true_ (value_lit self first) then (
+          (* If 0th watch is true, then clause is already satisfied. *)
+          Vec.set ws_b !j first;
+          Vec.set ws_c !j cr;
+          j := !j + 1;
         ) else (
-          let ch = Clause.header self.ca cr in
-          let false_lit = Lit.not p in
-
-          (* ensure that [false_lit] is second in the clause *)
-          if Lit.equal false_lit (Clause.lit self.ca cr 0) then (
-            Clause.swap_lits self.ca cr 0 1;
-          );
-          assert (Lit.equal false_lit (Clause.lit self.ca cr 1));
-          let i = i+1 in
-
-          assert (not (Clause.reloced self.ca cr));
-          let first = Clause.lit self.ca cr 0 in
-          if not (Lit.equal blocker first) &&
-             Lbool.equal Lbool.true_ (value_lit self first) then (
-            (* If 0th watch is true, then clause is already satisfied. *)
-            Vec.set ws_b j first;
-            Vec.set ws_c j cr;
-            (loop1 [@tailcall]) i (j+1);
-          ) else (
-            (* Look for new watch: *)
-            let[@unroll 2] rec find_w k =
-              if k = CH.size ch then false
-              else (
-                let ck = Clause.lit self.ca cr k in
-                if Lbool.equal Lbool.false_ (value_lit self ck) then (
-                  (find_w[@tailcall]) (k+1) (* nope *)
-                ) else (
-                  (* [k]-th lit is the new watch *)
-                  Clause.swap_lits self.ca cr 1 k;
-                  Vec.push (Vec.get self.watches_blocker ((Lit.not ck):>int)) first;
-                  Vec.push (Vec.get self.watches_cref ((Lit.not ck):>int)) cr;
-                  true
-                )
-              )
-            in
-            let found_watch = find_w 2 in
-            if found_watch then (
-              (loop1 [@tailcall]) i j (* not a watch anymore, remove from list *)
-            ) else (
-              (* Did not find watch -- clause is unit under assignment: *)
-              Vec.set ws_b j first;
-              Vec.set ws_c j cr;
-              let j = j+1 in
-
-              if Lbool.equal Lbool.false_ (value_lit self first) then (
-                (* conflict *)
-                confl := cr;
-                self.qhead <- Vec.size self.trail;
-                (* Copy the remaining watches: *)
-                Vec.blit ws_b i ws_b j (n-i);
-                Vec.blit ws_c i ws_c j (n-i);
-                j+(n-i)
+          (* Look for new watch: *)
+          match
+            for k=2 to CH.size ch-1 do
+              let ck = Clause.lit self.ca cr k in
+              if Lbool.equal Lbool.false_ (value_lit self ck) then (
+                (* next *)
               ) else (
-                (* propagate [first] *)
-                unchecked_enqueue self first cr;
-                (loop1 [@tailcall]) i j
+                (* [k]-th lit is the new watch *)
+                Clause.swap_lits self.ca cr 1 k;
+                Vec.push (Vec.get self.watches_blocker ((Lit.not ck):>int)) first;
+                Vec.push (Vec.get self.watches_cref ((Lit.not ck):>int)) cr;
+                raise_notrace Found_watch
               )
+            done;
+          with
+          | exception Found_watch ->
+            () (* not a watch anymore, remove from list *)
+          | () ->
+            (* Did not find watch -- clause is unit under assignment: *)
+            Vec.set ws_b !j first;
+            Vec.set ws_c !j cr;
+            j := !j+1;
+            if Lbool.equal Lbool.false_ (value_lit self first) then (
+              (* conflict *)
+              confl := cr;
+              self.qhead <- Vec.size self.trail;
+              (* Copy the remaining watches: *)
+              Vec.blit ws_b !i ws_b !j (n- !i);
+              Vec.blit ws_c !i ws_c !j (n- !i);
+              j := !j + (n - !i);
+              i := n;
+            ) else (
+              (* propagate [first] *)
+              unchecked_enqueue self first cr;
             )
-          )
         )
       )
-    in
-    let j = loop1 0 0 in
-    Vec.shrink ws_b j;
-    Vec.shrink ws_c j;
+    done;
+    Vec.shrink ws_b !j;
+    Vec.shrink ws_c !j;
   done;
   !confl
 
@@ -743,15 +740,21 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
   (*assert (for i=0 to Vec.size self.seen-1 do assert (not (Vec.get self.seen i)) done; true); *)
   Vec.push out_learnt Lit.undef; (* leave room for asserting lit *)
 
-  let rec resolve_loop ~pathC ~p ~index ~confl : Lit.t =
-    assert (not (Cref.is_undef confl));
+  let pathC = ref 0 in
+  let p = ref Lit.undef in
+  let index = ref (Vec.size self.trail-1) in
+  let confl = ref confl in
+  let continue = ref true in
 
-    let h = Clause.header self.ca confl in
-    if CH.learnt h then cla_bump_activity self confl;
+  while !continue do
+    assert (not (Cref.is_undef !confl));
+
+    let h = Clause.header self.ca !confl in
+    if CH.learnt h then cla_bump_activity self !confl;
 
     (* resolve with the other literals of the clause *)
-    for j = (if Lit.is_undef p then 0 else 1) to CH.size h - 1 do
-      let q = Clause.lit self.ca confl j in
+    for j = (if Lit.is_undef !p then 0 else 1) to CH.size h - 1 do
+      let q = Clause.lit self.ca !confl j in
 
       if not (seen self (Lit.var q)) && level_lit self q > 0 then (
         var_bump_activity self (Lit.var q);
@@ -766,26 +769,23 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
     done;
 
     (* next literal to consider *)
-    let index =
-      let rec loop i =
-        let v = Lit.var (Vec.get self.trail i) in
-        if seen self v then i-1 else loop (i-1)
-      in
-      loop index
-    in
+    while
+      let v = Lit.var (Vec.get self.trail !index) in
+      index := !index -1;
+      not (seen self v)
+    do ()
+    done;
 
-    let p = Vec.get self.trail (index+1) in
-    let confl = reason_lit self p in
-    set_seen self (Lit.var p) false;
+    p := Vec.get self.trail (!index+1);
+    confl := reason_lit self !p;
+    set_seen self (Lit.var !p) false;
     pathC := !pathC - 1;
 
     (*Printf.printf "resolve-pivot: %d (pathC %d)\n" (Lit.to_int p) !pathC; *)
 
-    if !pathC > 0 then (resolve_loop[@tailcall]) ~pathC ~p ~index ~confl
-    else p
-  in
-  let p = resolve_loop ~pathC:(ref 0) ~p:Lit.undef ~index:(Vec.size self.trail-1) ~confl in
-  Vec.set out_learnt 0 (Lit.not p);
+    if !pathC = 0 then continue := false;
+  done;
+  Vec.set out_learnt 0 (Lit.not !p);
 
   (* simplify conflict clause *)
   Vec.copy_to out_learnt ~into:self.analyze_toclear;
