@@ -1,0 +1,28 @@
+
+provers = [ "minisat-ml", "minisat" ]
+
+[minisat-ml]
+
+binary = "./minisat.exe"
+cmd = "./minisat.exe -cpu-lim $timeout $file"
+unsat = "^UNSAT"
+sat = "^SAT"
+unknown = "INDETERMINATE"
+version = "git:."
+
+[minisat]
+
+cmd = "minisat -cpu-lim=$timeout $file"
+unsat = "^UNSATISFIABLE"
+sat = "^SATISFIABLE"
+unknown = "INDETERMINATE"
+version = "2.2"
+
+[test]
+
+timeout=30
+problems = ".*\\.cnf\\.*"
+provers = [ "minisat-ml", "minisat" ]
+dir = [ "benchs/msat/" ]
+
+expect = "program:minisat"
