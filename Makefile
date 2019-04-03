@@ -26,3 +26,11 @@ logitest-quick:
 	  --csv snapshots/bench-$(DATE).csv \
 	  -c benchs/conf.toml $(TEST_OPTS)
 
+logitest-basic:
+	@mkdir -p snapshots
+	@logitest run --meta=`git rev-parse HEAD` \
+	  --summary snapshots/bench-basic-$(DATE).txt \
+	  --csv snapshots/bench-basic-$(DATE).csv \
+	  -c benchs/conf.toml $(TEST_OPTS) benchs/basic/
+
+
