@@ -9,6 +9,7 @@ build: [
   ["dune" "runtest" "-p" name] {with-test}
 ]
 depends: [
+  "camlzip"
   "dune" {build}
   "odoc" {with-doc}
   "qtest" {with-test}

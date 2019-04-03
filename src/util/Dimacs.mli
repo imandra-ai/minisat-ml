@@ -3,7 +3,9 @@ open Minisat_ml
 
 type t
 
-val make : in_channel -> t
+val make : refill:(Bytes.t -> int -> int -> int) -> t
+
+val make_chan : in_channel -> t
 
 val parse_int : t -> int
 

@@ -26,7 +26,7 @@ type t = {
   buf: Bytes.t;
   mutable pos: int;
   mutable size: int;
-  ic: in_channel;
+  refill: (Bytes.t -> int -> int -> int);
 }
 
 let buf_size = 1048576
@@ -36,18 +36,21 @@ let[@inline] eof self : bool = self.size = 0
 let fill_if_empty (self:t) : unit =
   if self.pos >= self.size then (
     self.pos <- 0;
-    self.size <- input self.ic self.buf 0 (Bytes.length self.buf);
+    self.size <- self.refill self.buf 0 (Bytes.length self.buf);
   )
 
-let make ic : t =
+let make ~refill : t =
   let r = {
-    ic; buf=Bytes.make buf_size '\000';
+    refill; buf=Bytes.make buf_size '\000';
     pos=0; size=0;
   } in
   fill_if_empty r; (* initial read *)
   r
 
-let junk self = self.pos <- 1 + self.pos; fill_if_empty self
+let make_chan ic : t =
+  make ~refill:(fun buf i len -> input ic buf i len)
+
+let[@inline] junk self = self.pos <- 1 + self.pos; fill_if_empty self
 
 let[@inline] get self : char =
   if self.pos >= self.size then raise_notrace End_of_file;

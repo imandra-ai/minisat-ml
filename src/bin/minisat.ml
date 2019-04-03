@@ -26,8 +26,7 @@ let print_stats (solver:Solver.t) : unit =
   Printf.printf "CPU time              : %g s\n" cpu_time;
   ()
 
-let process_ic_ ~verb ~ccmin ic =
-  let dparse = D.make ic in
+let process_ ~verb ~ccmin (dparse:D.t) =
   let solver = Solver.create() in
   Solver.set_verbosity solver verb;
   Solver.set_ccmin_mode solver ccmin;
@@ -37,12 +36,27 @@ let process_ic_ ~verb ~ccmin ic =
   print_endline (if res then "SAT" else "UNSAT");
   ()
 
+let process_ic_ ~verb ~ccmin ic =
+  process_ ~verb ~ccmin (D.make_chan ic)
+
 let process_stdin ~verb ~ccmin () : unit =
   process_ic_ ~verb ~ccmin stdin
 
+let process_gzip_ic_ ~verb ~ccmin ic =
+  let gic = Gzip.open_in_chan ic in
+  let p = D.make ~refill:(Gzip.input gic) in
+  process_ ~verb ~ccmin p
+
 let process_file ~verb ~ccmin (file:string) : unit =
   let ic = open_in file in
-  try process_ic_ ~verb ~ccmin ic; close_in ic
+  try
+    let r =
+      if String.length file>=3 && String.sub file (String.length file-3) 3 = ".gz"
+      then process_gzip_ic_ ~verb ~ccmin ic
+      else process_ic_ ~verb ~ccmin ic
+    in
+    close_in ic;
+    r
   with e -> close_in_noerr ic; raise e
 
 let () =

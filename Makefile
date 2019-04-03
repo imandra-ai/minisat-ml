@@ -14,7 +14,7 @@ clean:
 dev: build test
 
 watch:
-	@dune build @all -w
+	@dune build @all -w $(FLAGS)
 
 DATE=$(shell date +%FT%H:%M)
 TEST_OPTS?= -j $(J) --junit test.xml
