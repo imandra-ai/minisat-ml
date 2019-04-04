@@ -15,7 +15,7 @@ version = "git:."
 cmd = "minisat -cpu-lim=$timeout $file"
 unsat = "^UNSATISFIABLE"
 sat = "^SATISFIABLE"
-unknown = "INDETERMINATE"
+unknown = "INDETERMINATE|INTERRUPTED"
 version = "2.2"
 
 [z3]
@@ -42,3 +42,21 @@ provers = [ "minisat-ml", "minisat", "msat", "z3" ]
 dir = [ "benchs/msat/" ]
 
 expect = "program:minisat"
+
+[bench-basic]
+
+timeout=30
+problems = ".*\\.cnf\\.*"
+provers = [ "minisat-ml", "minisat", "msat", "z3" ]
+dir = [ "benchs/basic" ]
+
+expect = "unknown"
+
+[bench-satrace-06]
+
+timeout=30
+problems = ".*\\.cnf\\.*"
+provers = [ "minisat-ml", "minisat", "msat", "z3" ]
+dir = [ "benchs/sat_race_2006/" ]
+
+expect = "unknown"

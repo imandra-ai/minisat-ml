@@ -17,7 +17,7 @@ watch:
 	@dune build @all -w $(FLAGS)
 
 DATE=$(shell date +%FT%H:%M)
-TEST_OPTS?= -j $(J) --junit test.xml
+TEST_OPTS?= -j $(J) --junit test.xml --progress
 
 logitest-quick:
 	@mkdir -p snapshots
@@ -31,6 +31,6 @@ logitest-basic:
 	@logitest run --meta=`git rev-parse HEAD` \
 	  --summary snapshots/bench-basic-$(DATE).txt \
 	  --csv snapshots/bench-basic-$(DATE).csv \
-	  -c benchs/conf.toml $(TEST_OPTS) benchs/basic/
+	  -c benchs/conf.toml $(TEST_OPTS) --profile=bench-basic
 
 
