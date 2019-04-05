@@ -54,9 +54,20 @@ expect = "unknown"
 
 [bench-satrace-06]
 
-timeout=30
+timeout=300
+memory = 5000
 problems = ".*\\.cnf\\.*"
 provers = [ "minisat-ml", "minisat", "msat", "z3" ]
 dir = [ "benchs/sat_race_2006/" ]
+
+expect = "unknown"
+
+[bench-satcomp-18]
+
+timeout=300
+memory = 5000
+problems = ".*\\.cnf\\.*"
+provers = [ "minisat-ml", "minisat", "msat", "z3" ]
+dir = [ "benchs/satcomp-18/" ]
 
 expect = "unknown"
