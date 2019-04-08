@@ -992,7 +992,7 @@ let search self (nof_conflicts:int) : Lbool.t =
           self.max_learnts <- self.max_learnts *. self.learntsize_inc;
           if self.verbosity >= 1 then (
             let i = int_of_float in
-            Printf.printf "| %9d | %7d %8d %8d | %8d %8d %6.0f | %6.3f %% |\n"
+            Printf.printf "| %9d | %7d %8d %8d | %8d %8d %6.0f | %6.3f %% |\n%!"
               self.conflicts
               (self.dec_vars -
                (if Vec.size self.trail_lim=0 then Vec.size self.trail else Vec.get self.trail_lim 0))
@@ -1100,7 +1100,6 @@ let luby (y:float) (x:int) : float =
   y ** float_of_int seq
 
 let solve_ (self:t) : Lbool.t =
-  (*Printf.printf "solve\n";*)
   Vec.clear self.model;
   Vec.clear self.conflict;
   if not self.ok then (
@@ -1115,7 +1114,7 @@ let solve_ (self:t) : Lbool.t =
       Printf.printf "============================[ Search Statistics ]==============================\n";
       Printf.printf "| Conflicts |          ORIGINAL         |          LEARNT          | Progress |\n";
       Printf.printf "|           |    Vars  Clauses Literals |    Limit  Clauses Lit/Cl |          |\n";
-      Printf.printf "===============================================================================\n";
+      Printf.printf "===============================================================================\n%!";
     );
 
     (* search until budget is exhausted, or status is true/false *)
@@ -1133,7 +1132,7 @@ let solve_ (self:t) : Lbool.t =
     let status = loop_search ~curr_restarts:0 in
 
     if self.verbosity >= 1 then (
-      Printf.printf("===============================================================================\n");
+      Printf.printf("===============================================================================\n%!");
     );
 
     if Lbool.equal Lbool.true_ status then (

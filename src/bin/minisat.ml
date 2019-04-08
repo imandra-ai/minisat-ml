@@ -27,10 +27,26 @@ let print_stats (solver:Solver.t) : unit =
   ()
 
 let process_ ~verb ~ccmin (dparse:D.t) =
+  let initial_time = System.cpu_time() in
   let solver = Solver.create() in
   Solver.set_verbosity solver verb;
   Solver.set_ccmin_mode solver ccmin;
   D.parse_dimacs dparse solver;
+
+  if verb > 0 then (
+    Printf.printf "============================[ Problem Statistics ]=============================\n";
+    Printf.printf "|                                                                             |\n";
+    Printf.printf "|  Number of variables:  %12d                                         |\n"
+      (Solver.n_vars solver);
+    Printf.printf "|  Number of clauses:    %12d                                         |\n"
+      (Solver.n_clauses solver);
+    let parsed_time = System.cpu_time () in
+    Printf.printf "|  Parse time:           %12.2f s                                       |\n"
+      (parsed_time -. initial_time);
+    Printf.printf "|                                                                             |\n";
+    Printf.printf "===============================================================================\n%!";
+  );
+
   let res = Solver.solve solver ~assumps:(Vec.make()) in
   print_stats solver;
   print_endline (if res then "SAT" else "UNSAT");
