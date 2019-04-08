@@ -22,7 +22,7 @@ val read_int_list : t -> int list
 val read_int_list_list : t -> int list list
 (** Read all clauses as integer lists, for debug purpose *)
 
-val read_clause : t -> Solver.t -> Lit.t Vec.t -> unit
+val read_clause : t -> Solver.t -> Lit.t Vec.t -> bool
 
 val parse_dimacs : t -> Solver.t -> unit
 

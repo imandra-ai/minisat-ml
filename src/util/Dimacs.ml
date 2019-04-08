@@ -24,6 +24,7 @@ open Minisat_ml
 
 type t = {
   buf: Bytes.t;
+  mutable eof: bool;
   mutable pos: int;
   mutable size: int;
   refill: (Bytes.t -> int -> int -> int);
@@ -31,18 +32,19 @@ type t = {
 
 let buf_size = 1048576
 
-let[@inline] eof self : bool = self.size = 0
+let[@inline] eof self : bool = self.eof
 
 let fill_if_empty (self:t) : unit =
-  if self.pos >= self.size then (
+  if self.pos >= self.size && not self.eof then (
     self.pos <- 0;
     self.size <- self.refill self.buf 0 (Bytes.length self.buf);
+    if self.size = 0 then self.eof <- true;
   )
 
 let make ~refill : t =
   let r = {
     refill; buf=Bytes.make buf_size '\000';
-    pos=0; size=0;
+    pos=0; size=0; eof=false;
   } in
   fill_if_empty r; (* initial read *)
   r
@@ -53,35 +55,35 @@ let make_chan ic : t =
 let[@inline] junk self = self.pos <- 1 + self.pos; fill_if_empty self
 
 let[@inline] get self : char =
-  if self.pos >= self.size then raise_notrace End_of_file;
+  assert (self.pos < self.size);
   Bytes.get self.buf self.pos
 
 let rec skip_whitespace (self:t) : unit =
-  if not (eof self) then (
+  if not self.eof then (
     match get self with
     | '\n' | ' ' | '\t' | '\r' -> junk self; skip_whitespace self
     | _ -> ()
-    | exception End_of_file -> ()
   )
 
 let rec skip_line self : unit =
-  if not (eof self) then (
+  if not self.eof then (
     match get self with
     | '\n' -> junk self; () (* done *)
     | _ -> junk self; skip_line self
-    | exception End_of_file -> ()
   )
 
 let parse_int (self:t) : int =
   let rec aux neg v =
-    match get self with
-    | '0' .. '9' as c ->
-      junk self;
-      let v = v * 10 + (Char.code c - Char.code '0') in
-      aux neg v
-    | _ -> if neg then -v else v (* done *)
+    if eof self then if neg then -v else v
+    else (
+      match get self with
+      | '0' .. '9' as c ->
+        junk self;
+        let v = v * 10 + (Char.code c - Char.code '0') in
+        aux neg v
+      | _ -> if neg then -v else v (* done *)
+    )
   in
-  skip_whitespace self;
   let neg = match get self with
     | '-' -> junk self; true
     | '+' -> junk self; false
@@ -91,54 +93,62 @@ let parse_int (self:t) : int =
   aux neg 0
 
 let rec skip_metadata self =
-  match get self with
-  | 'c' -> junk self; skip_line self; skip_metadata self
-  | 'p' -> junk self; skip_line self; skip_metadata self (* do not parse metadata or validate *)
-  | '\n' -> junk self; skip_metadata self (* empty line *)
-  | _ -> ()
+  if not self.eof then (
+    match get self with
+    | 'c' -> junk self; skip_line self; skip_metadata self
+    | 'p' -> junk self; skip_line self; skip_metadata self (* do not parse metadata or validate *)
+    | '\n' -> junk self; skip_metadata self (* empty line *)
+    | _ -> ()
+  )
 
 let read_int_list self : _ list =
   let rec aux acc =
-    match skip_metadata self; parse_int self with
-    | exception End_of_file -> List.rev acc
-    | 0 -> List.rev acc
-    | i -> aux (i::acc)
+    skip_metadata self;
+    if self.eof then List.rev acc
+    else match parse_int self with
+      | 0 -> List.rev acc
+      | i -> aux (i::acc)
   in
   aux []
 
 let read_int_list_list self : _ list list =
   let rec aux acc =
-    if eof self then List.rev acc
+    skip_metadata self;
+    if self.eof then List.rev acc
     else (
-      match skip_metadata self; read_int_list self with
-      | c -> aux (c::acc)
-      | exception End_of_file -> List.rev acc
+      let c = read_int_list self in
+      aux (c::acc)
     )
   in
   aux []
 
-let read_clause (self:t) (solver:Solver.t) (lits: Lit.t Vec.t) : unit =
+let read_clause (self:t) (solver:Solver.t) (lits: Lit.t Vec.t) : bool =
   Vec.clear lits;
   let rec aux() =
-    match parse_int self with
-    | exception End_of_file -> ()
-    | 0 -> () (* return *)
-    | i ->
-      let v_idx = abs i - 1 in
-      while v_idx >= Solver.n_vars solver do ignore (Solver.new_var solver:Var.t) done;
-      Vec.push lits (Lit.make_sign (Var.make v_idx) (i<0));
-      aux()
+    skip_metadata self;
+    skip_whitespace self;
+    if self.eof then false
+    else (
+      match parse_int self with
+      | 0 -> true (* return *)
+      | i ->
+        let v_idx = abs i - 1 in
+        while v_idx >= Solver.n_vars solver do ignore (Solver.new_var solver:Var.t) done;
+        Vec.push lits (Lit.make_sign (Var.make v_idx) (i<0));
+        aux()
+    )
   in
   aux()
 
 let parse_dimacs self solver : unit =
   let v = Vec.make() in
   let rec loop () =
-    if not @@ eof self then (
+    if not self.eof then (
       match skip_metadata self; read_clause self solver v with
-      | () ->
+      | true ->
         let ok = Solver.add_clause solver v in
         if ok then loop ()
+      | false -> ()
       | exception End_of_file -> ()
     )
   in
