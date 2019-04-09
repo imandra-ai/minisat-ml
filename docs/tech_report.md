@@ -96,6 +96,59 @@ performance gains.
 
 Some functions are annotated as `[@@inline]` to guide the optimizer better.
 
+## Experimental results
+
+We compare solvers across a few benchmarks. The solver are:
+
+- minisat (2.2.0, C++)
+- batsat (0.2, rust)
+- minisat-ml (OCaml)
+- msat (0.8, OCaml)
+- z3 (4.8.4, C++)
+
+and the benchmarks are:
+
+- `basic` (from [minisat-rust](https://github.com/mishun/minisat-rust/commit/698c40262ae84c622f048eeec6a5209103cb8188))
+- [satrace '06](http://fmv.jku.at/sat-race-2006/)
+- [satcomp '18](http://sat2018.forsyte.tuwien.ac.at/)
+
+we ran these benchmarks on a machine with 20 cores 2.20GHz Intel Xeon CPUs,
+and 64GB of RAM.
+
+### Basic
+
+| prover | sat | unsat | solved | unknown |
+|---|---|---|---|---|
+| z3          | 2116 | 1103 |  3219 |  2 |
+| msat        | 2115 | 1097 |  3212 |  9 |
+| minisat-ml  | 2118 | 1096 |  3214 |  7 |
+| minisat     | 2118 | 1102 |  3220 |  1 |
+| batsat      | 2118 | 1102 |  3220 |  1 |
+
+### Sat-race '06
+
+| prover | sat | unsat | solved | unknown |
+|---|---|---|---|---|
+| z3          | 30 | 43 |  73 |  27 |
+| msat        | 11 | 20 |  31 |   69 |
+| minisat-ml  | 28 | 33 |  61 |   39 |
+| minisat     | 39 | 41 |  80 |  20 |
+| batsat      | 38 | 41 |  79 |  21 |
+
+![graph](./bench-satrace06-2019-04-09T17:28.png)
+
+### Sat-comp '18
+
+| prover | sat | unsat | solved | unknown |
+|---|---|---|---|---|
+| z3          | 44 | 21 | 65 |  335 |
+| msat        | 21 |  1 | 22 |  378 |
+| minisat-ml  | 23 |  2 | 25 |  375 |
+| minisat     | 37 |  8 | 45 |  355 |
+| batsat      | 34 |  8 | 42 |  358 |
+
+![graph](./bench-satcomp18-2019-04-08T21:17.png)
+
 ## Discussion
 
 The differences in performance can be explain by at least these factors:
