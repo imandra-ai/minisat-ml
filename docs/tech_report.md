@@ -34,7 +34,7 @@ and C++.
 Instead of `.h` and `.cpp` files, the OCaml version uses the
 module system with `.ml` and `.mli` files. The `heap` file was also modified
 to be parametrized (using an OCaml functor) over its content, rather than
-dealing entirely with integers.s
+dealing entirely with integers.
 Inlining is still possible thanks to `[@@inline]` annotations on functors
 and functions.
 
