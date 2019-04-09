@@ -107,6 +107,13 @@ let[@inline] iter f {data; sz} : unit =
     f (Array.unsafe_get data i)
   done
 
+module Infix = struct
+  let ( .%[] ) = get
+  let ( .%[]<- ) = set
+end
+
+include Infix
+
 module Internal = struct
   let[@inline] data v = v.data
 end

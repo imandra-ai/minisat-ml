@@ -9,6 +9,7 @@ build: [
   ["dune" "runtest" "-p" name] {with-test}
 ]
 depends: [
+  "ocaml" { >= "4.06" }
   "camlzip"
   "dune" {build}
   "odoc" {with-doc}

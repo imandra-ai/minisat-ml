@@ -55,6 +55,13 @@ val blit : 'a t -> int -> 'a t -> int -> int -> unit
 val iter : ('a -> unit) -> 'a t -> unit
 val iteri : (int -> 'a -> unit) -> 'a t -> unit
 
+module Infix : sig
+  val ( .%[] ) : 'a t -> int -> 'a
+  val ( .%[]<- ) : 'a t -> int -> 'a -> unit
+end
+
+include module type of Infix
+
 module Internal : sig
   val data : 'a t -> 'a array
 end

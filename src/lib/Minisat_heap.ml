@@ -24,6 +24,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
  *)
 
 module Vec = Minisat_vec
+open Vec.Infix
 
 module type S = sig
   type t
@@ -75,63 +76,63 @@ module Make(T : ARG)
 
   let[@inline] empty self = Vec.size self.heap = 0
   let[@inline] in_heap self (i:elt) =
-    (i:>int) < Vec.size self.indices && Vec.get self.indices (i:>int) >= 0
+    (i:>int) < Vec.size self.indices && self.indices.%[ (i:>int) ] >= 0
 
   let[@inline] size self = Vec.size self.heap
-  let[@inline] get self i = Vec.get self.heap i
+  let[@inline] get self i = self.heap.%[ i ]
 
   let percolate_up {heap;indices;less} (i:int) : unit =
-    let x = Vec.get heap i in
+    let x = heap.%[ i ] in
     let p = parent i in
     let rec loop i p =
-      if i<>0 && less x (Vec.get heap p) then (
-        Vec.set heap i (Vec.get heap p);
-        Vec.set indices ((Vec.get heap p):>int) i;
+      if i<>0 && less x heap.%[ p ] then (
+        heap.%[ i ] <- heap.%[ p ];
+        indices.%[ (heap.%[p] :> int) ] <- i;
         let i = p in
         let p = parent p in
         loop i p
       ) else i
     in
     let i = loop i p in
-    Vec.set heap i x;
-    Vec.set indices (x:>int) i;
+    heap.%[ i ] <- x;
+    indices.%[ (x:>int) ] <- i;
     ()
 
   let percolate_down {heap;indices;less} (i:int) : unit =
     let size = Vec.size heap in
-    let x = Vec.get heap i in
+    let x = heap.%[ i ] in
     let rec loop i =
       if left i < size then (
         (* pick side: left or right *)
         let child =
           if right i < size &&
-             less (Vec.get heap (right i)) (Vec.get heap (left i))
+             less heap.%[ right i ] heap.%[ left i ]
           then right i else left i
         in
-        if not (less (Vec.get heap child) x) then (
+        if not (less heap.%[ child ] x) then (
           i (* break *)
         ) else (
-          Vec.set heap i (Vec.get heap child);
-          Vec.set indices ((Vec.get heap i):>int) i;
+          heap.%[ i ] <- heap.%[ child ];
+          indices.%[ (heap.%[ i ] :>int) ] <- i;
           let i = child in
           loop i
         )
       ) else i
     in
     let i = loop i in
-    Vec.set heap i x;
-    Vec.set indices (x:>int) i;
+    heap.%[ i ] <- x;
+    indices.%[ (x:>int) ] <- i;
     ()
 
-  let[@inline] decrease self i = assert (in_heap self i); percolate_up self (Vec.get self.indices (i:>int))
-  let[@inline] increase self i = assert (in_heap self i); percolate_down self (Vec.get self.indices (i:>int))
+  let[@inline] decrease self i = assert (in_heap self i); percolate_up self self.indices.%[ (i:>int) ]
+  let[@inline] increase self i = assert (in_heap self i); percolate_down self self.indices.%[ (i:>int) ]
 
   let insert self (n:elt) =
     Vec.grow_to self.indices ((n:>int)+1) ~-1;
     assert (not (in_heap self n));
     (* insert as a leaf, then percolate up to preserve heap property *)
     let i = Vec.size self.heap in
-    Vec.set self.indices (n:>int) i;
+    self.indices.%[ (n:>int) ] <- i;
     Vec.push self.heap n;
     percolate_up self i
 
@@ -139,25 +140,25 @@ module Make(T : ARG)
     if not (in_heap self i) then (
       insert self i
     ) else (
-      percolate_up self (Vec.get self.indices (i:>int));
-      percolate_down self (Vec.get self.indices (i:>int))
+      percolate_up self self.indices.%[ (i:>int) ];
+      percolate_down self self.indices.%[ (i:>int) ]
     )
 
   let remove_min self : elt =
     assert (not (empty self));
-    let x = Vec.get self.heap 0 in
+    let x = self.heap.%[ 0 ] in
     (* swap first element with a leaf (the bottom right one), then fix structure *)
     let new_first = Vec.last self.heap in
-    Vec.set self.heap 0 new_first;
-    Vec.set self.indices (new_first:>int) 0;
-    Vec.set self.indices (x:>int) ~-1;
+    self.heap.%[ 0 ] <- new_first;
+    self.indices.%[ (new_first:>int) ] <- 0;
+    self.indices.%[ (x:>int) ] <- ~-1;
     Vec.pop self.heap;
     if Vec.size self.heap > 1 then percolate_down self 0;
     x
 
   let clear self : unit =
     for i=0 to Vec.size self.heap do
-      Vec.set self.indices ((Vec.get self.heap i):>int) ~-1;
+      self.indices.%[ (self.heap.%[ i ]:>int) ] <- ~-1;
     done;
     Vec.clear self.heap
 
@@ -169,7 +170,7 @@ module Make(T : ARG)
     Vec.clear self.heap;
     Vec.iteri
       (fun i (x:elt) ->
-         Vec.set self.indices (x:>int) i;
+         self.indices.%[ (x:>int) ] <- i;
          Vec.push self.heap x)
       ns;
     for i= (Vec.size self.heap/2)-1 downto 0 do

@@ -24,6 +24,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
  *)
 
 open Minisat_types
+open Minisat_vec.Infix
 
 module CH = Clause.Header
 module Heap = Minisat_heap.Make(Var)
@@ -139,7 +140,7 @@ let[@inline] ok self = self.ok
 let[@inline] n_vars self : int = Vec.size self.var_level
 let[@inline] n_free_vars self : int =
   self.dec_vars -
-  (if Vec.size self.trail_lim = 0 then Vec.size self.trail else Vec.get self.trail_lim 0)
+  (if Vec.size self.trail_lim = 0 then Vec.size self.trail else self.trail_lim.%[ 0 ])
 let[@inline] n_assigns self : int = Vec.size self.trail
 let[@inline] n_clauses self : int = Vec.size self.clauses
 let[@inline] n_learnts self : int = Vec.size self.learnts
@@ -153,16 +154,16 @@ let[@inline] n_max_literals self = self.max_literals
 
 let[@inline] decision_level self : int = Vec.size self.trail_lim
 
-let[@inline] activity_var self (v:Var.t) : float = Vec.get self.var_act (v:>int)
-let[@inline] set_activity_var self (v:Var.t) f : unit = Vec.set self.var_act (v:>int) f
+let[@inline] activity_var self (v:Var.t) : float = self.var_act.%[ (v:>int) ]
+let[@inline] set_activity_var self (v:Var.t) f : unit = self.var_act.%[ (v:>int) ] <- f
 
-let[@inline] level_var self (v:Var.t) : int = Vec.get self.var_level (v:>int)
+let[@inline] level_var self (v:Var.t) : int = self.var_level.%[ (v:>int) ]
 let[@inline] level_lit self (x:Lit.t) : int = level_var self (Lit.var x)
 
-let[@inline] value_var self (v:Var.t) : Lbool.t = Vec.get self.assigns (v:>int)
+let[@inline] value_var self (v:Var.t) : Lbool.t = self.assigns.%[ (v:>int) ]
 let[@inline] value_lit self (x:Lit.t) : Lbool.t = Lbool.xor (value_var self (Lit.var x)) (Lit.sign x)
 
-let[@inline] reason_var self (v:Var.t) : Cref.t = Vec.get self.var_reason (v:>int)
+let[@inline] reason_var self (v:Var.t) : Cref.t = self.var_reason.%[ (v:>int) ]
 let[@inline] reason_lit self (x:Lit.t) : Cref.t = reason_var self (Lit.var x)
 
 let[@inline] abstract_level self (v:Var.t) : int =
@@ -182,7 +183,7 @@ let[@inline] within_budget self : bool =
 
 let add_empty_clause self = self.ok <- false
 
-let[@inline] decision self v = Vec.get self.decision (v:Var.t:>int)
+let[@inline] decision self v = self.decision.%[ (v:Var.t:>int) ]
 
 let insert_var_order self (v:Var.t) : unit =
   if not (Heap.in_heap self.order_heap v) && decision self v then (
@@ -192,14 +193,14 @@ let insert_var_order self (v:Var.t) : unit =
 module Watch = struct
   type nonrec t = t
   let[@inline] blocker_ (self:t) (lit:Lit.t) : _ Vec.t =
-    Vec.get self.watches_blocker (lit:>int)
+    self.watches_blocker.%[ (lit:>int) ]
   let[@inline] cref_ self (lit:Lit.t) : _ Vec.t =
-    Vec.get self.watches_cref (lit:>int)
+    self.watches_cref.%[ (lit:>int) ]
 
   let smudge self (lit:Lit.t) : unit =
     let i = (lit:>int) in
-    if not (Vec.get self.watches_dirty i) then (
-      Vec.set self.watches_dirty i true;
+    if not self.watches_dirty.%[ i ] then (
+      self.watches_dirty.%[ i ] <- true;
       Vec.push self.watches_dirties lit;
     )
 
@@ -219,29 +220,29 @@ module Watch = struct
 
   let clean self (p:Lit.t) : unit =
     let p_idx = (p:>int) in
-    let ws_b = Vec.get self.watches_blocker p_idx in
-    let ws_c = Vec.get self.watches_cref p_idx in
+    let ws_b = self.watches_blocker.%[ p_idx ] in
+    let ws_c = self.watches_cref.%[ p_idx ] in
     assert (Vec.size ws_b=Vec.size ws_c);
     let j = ref 0 in
     for i=0 to Vec.size ws_c-1 do
-      let c = Vec.get ws_c i in
+      let c = ws_c.%[ i ] in
       if Clause.mark self.ca c <> 1 then (
         (* not deleted, keep *)
-        Vec.set ws_c !j c;
-        Vec.set ws_b !j (Vec.get ws_b i);
+        ws_c.%[ !j ] <- c;
+        ws_b.%[ !j ] <- ws_b.%[ i ];
         j := !j + 1;
       )
     done;
     Vec.shrink ws_b !j;
     Vec.shrink ws_c !j;
-    Vec.set self.watches_dirty p_idx false;
+    self.watches_dirty.%[ p_idx ] <- false;
     ()
 
   let clean_all self : unit =
     Vec.iter
       (fun (p:Lit.t) ->
          (* Dirties may contain duplicates so check here if a variable is already cleaned: *)
-         if Vec.get self.watches_dirty (p:>int) then (
+         if self.watches_dirty.%[ (p:>int) ] then (
            clean self p
          ))
       self.watches_dirties;
@@ -251,7 +252,7 @@ end
 let set_decision_var self (v:Var.t) b : unit =
   if b && not (decision self v) then self.dec_vars <- self.dec_vars+1;
   if not b && decision self v then self.dec_vars <- self.dec_vars-1;
-  Vec.set self.decision (v:>int) b;
+  self.decision.%[ (v:>int) ] <- b;
   insert_var_order self v
 
 let new_var_ self ~polarity ~decision : Var.t =
@@ -278,9 +279,9 @@ let unchecked_enqueue self (p:Lit.t) (reason: Cref.t) : unit =
   assert (Lbool.equal Lbool.undef @@ value_lit self p);
   (*Printf.printf "enqueue %d (reason %d)\n" (Lit.to_int p) reason; *)
   let v_idx = (Lit.var p :> int) in
-  Vec.set self.assigns v_idx (Lbool.of_bool (not (Lit.sign p)));
-  Vec.set self.var_reason v_idx reason;
-  Vec.set self.var_level v_idx (decision_level self);
+  self.assigns.%[ v_idx ] <- Lbool.of_bool (not (Lit.sign p));
+  self.var_reason.%[ v_idx ] <- reason;
+  self.var_level.%[ v_idx ] <- decision_level self;
   Vec.push self.trail p
 
 let[@inline] enqueue self (p:Lit.t) (from:Cref.t) : bool =
@@ -335,15 +336,15 @@ let[@inline] detach_clause self c : unit = detach_clause_ self ~strict:false c
 let cancel_until self (level:int) : unit =
   if decision_level self > level then (
     (*Printf.printf "cancel-until %d\n" level; *)
-    let offset = Vec.get self.trail_lim level in
+    let offset = self.trail_lim.%[ level ] in
     for c = Vec.size self.trail-1 downto offset do
-      let lit_c = Vec.get self.trail c in
+      let lit_c = self.trail.%[ c ] in
       let x = Lit.var lit_c in
-      Vec.set self.assigns (x:>int) Lbool.undef;
+      self.assigns.%[ (x:>int) ] <- Lbool.undef;
       if self.phase_saving>1 ||
          (self.phase_saving=1 && c > Vec.last self.trail_lim) then (
         (* save phase *)
-        Vec.set self.polarity (x:>int) (Lit.sign lit_c);
+        self.polarity.%[ (x:>int) ] <- Lit.sign lit_c;
       );
       insert_var_order self x;
     done;
@@ -361,7 +362,7 @@ let pick_branch_lit self : Lit.t =
       let v = Heap.get self.order_heap
           (irand self.random_seed (Heap.size self.order_heap)) in
       if Lbool.equal Lbool.undef (value_var self v) &&
-         Vec.get self.decision (v:>int) then (
+         self.decision.%[ (v:>int) ] then (
         self.rnd_decisions <- 1 + self.rnd_decisions;
       );
       v
@@ -370,7 +371,7 @@ let pick_branch_lit self : Lit.t =
   let rec loop next =
     if Var.equal Var.undef next ||
        not (Lbool.equal Lbool.undef (value_var self next)) ||
-       not (Vec.get self.decision (next:>int)) then (
+       not self.decision.%[ (next:>int) ] then (
 
       if Heap.empty self.order_heap then Var.undef
       else loop (Heap.remove_min self.order_heap)
@@ -382,7 +383,7 @@ let pick_branch_lit self : Lit.t =
   ) else (
     Lit.make_sign next
       (if self.rnd_pol then drand self.random_seed < 0.5
-       else Vec.get self.polarity (next:>int))
+       else self.polarity.%[ (next:>int) ])
   )
 
 exception Found_watch
@@ -398,13 +399,13 @@ let propagate (self:t) : Cref.t =
   Watch.clean_all self;
   let confl = ref Cref.undef in
   while self.qhead < Vec.size self.trail do
-    let p = Vec.get self.trail self.qhead in
+    let p = self.trail.%[ self.qhead ] in
     self.qhead <- self.qhead + 1;
     self.propagations <- 1 + self.propagations;
     self.simpDB_props <- self.simpDB_props - 1;
 
-    let ws_b = Vec.get self.watches_blocker (p:>int) in
-    let ws_c = Vec.get self.watches_cref (p:>int) in
+    let ws_b = self.watches_blocker.%[ (p:>int) ] in
+    let ws_c = self.watches_cref.%[ (p:>int) ] in
     let n = Vec.size ws_b in
     assert (n = Vec.size ws_c);
 
@@ -413,13 +414,13 @@ let propagate (self:t) : Cref.t =
     let i=ref 0 in
     let j=ref 0 in
     while !i < n do
-      let blocker = Vec.get ws_b !i in
-      let cr = Vec.get ws_c !i in
+      let blocker = ws_b.%[ !i ] in
+      let cr = ws_c.%[ !i ] in
       (*Printf.printf "  watch p=%d cr=%d\n" (p:>int) cr; *)
       if Lbool.equal Lbool.true_ (value_lit self blocker) then (
         (* avoid inspecting the clause if blocker lit is true *)
-        Vec.set ws_b !j blocker;
-        Vec.set ws_c !j cr;
+        ws_b.%[ !j ] <- blocker;
+        ws_c.%[ !j ] <- cr;
         i := !i + 1;
         j := !j + 1;
       ) else (
@@ -438,8 +439,8 @@ let propagate (self:t) : Cref.t =
         if not (Lit.equal blocker first) &&
            Lbool.equal Lbool.true_ (value_lit self first) then (
           (* If 0th watch is true, then clause is already satisfied. *)
-          Vec.set ws_b !j first;
-          Vec.set ws_c !j cr;
+          ws_b.%[ !j ] <- first;
+          ws_c.%[ !j ] <- cr;
           j := !j + 1;
         ) else (
           (* Look for new watch: *)
@@ -451,8 +452,8 @@ let propagate (self:t) : Cref.t =
               ) else (
                 (* [k]-th lit is the new watch *)
                 Clause.swap_lits self.ca cr 1 k;
-                Vec.push (Vec.get self.watches_blocker ((Lit.not ck):>int)) first;
-                Vec.push (Vec.get self.watches_cref ((Lit.not ck):>int)) cr;
+                Vec.push self.watches_blocker.%[ ((Lit.not ck):>int) ] first;
+                Vec.push self.watches_cref.%[ ((Lit.not ck):>int) ] cr;
                 raise_notrace Found_watch
               )
             done;
@@ -461,8 +462,8 @@ let propagate (self:t) : Cref.t =
             () (* not a watch anymore, remove from list *)
           | () ->
             (* Did not find watch -- clause is unit under assignment: *)
-            Vec.set ws_b !j first;
-            Vec.set ws_c !j cr;
+            ws_b.%[ !j ] <- first;
+            ws_c.%[ !j ] <- cr;
             j := !j+1;
             if Lbool.equal Lbool.false_ (value_lit self first) then (
               (* conflict *)
@@ -494,14 +495,14 @@ let add_clause self (ps:Lit.t Vec.t) : bool =
     (* Check if clause is satisfied and remove false/duplicate literals: *)
     let j = ref 0 and p = ref Lit.undef in
     for i=0 to Vec.size ps-1 do
-      let p_i = Vec.get ps i in
+      let p_i = ps.%[ i ] in
       let v = value_lit self p_i in
       if Lbool.equal Lbool.true_ v || Lit.equal (Lit.not !p) p_i then (
         raise_notrace Early_return_true; (* satisfied/trivial *)
       );
       if not (Lbool.equal Lbool.false_ v) && not (Lit.equal !p p_i) then (
         (* not a duplicate *)
-        Vec.set ps !j p_i;
+        ps.%[ !j ] <- p_i;
         p := p_i;
         incr j
       )
@@ -512,7 +513,7 @@ let add_clause self (ps:Lit.t Vec.t) : bool =
       self.ok <- false;
       false
     ) else if Vec.size ps = 1 then (
-      unchecked_enqueue self (Vec.get ps 0) Cref.undef;
+      unchecked_enqueue self ps.%[ 0 ] Cref.undef;
       let confl = propagate self in
       if Cref.is_undef confl then (
         true
@@ -540,7 +541,7 @@ let remove_clause self (c:Cref.t) : unit =
   (*Printf.printf "remove clause %d\n" c; *)
   detach_clause self c;
   if locked self c then (
-    Vec.set self.var_reason ((Lit.var (Clause.lit self.ca c 0)):>int) Cref.undef;
+    self.var_reason.%[ ((Lit.var (Clause.lit self.ca c 0)):>int) ] <- Cref.undef;
   );
   Clause.set_mark self.ca c 1;
   assert (Clause.mark self.ca c = 1);
@@ -557,13 +558,13 @@ let reloc_all (self:t) ~into : unit =
     for s = 0 to 1 do
       let p = Lit.make_sign (Var.make v) (s=1) in
       (*Printf.printf " >>> RELOCING: %s%d\n" (if Lit.sign p then "-" else "") ((Lit.var p:>int)+1);*)
-      let ws_c = Vec.get self.watches_cref (p:>int) in
+      let ws_c = self.watches_cref.%[ (p:>int) ] in
       for j=0 to Vec.size ws_c-1 do
-        let c = Vec.get ws_c j in
+        let c = ws_c.%[ j ] in
         assert (Clause.mark self.ca c = 0); (* not deleted *)
         let c2 = Clause.reloc self.ca c ~into in
         (*Printf.printf "reloc %d into %d\n" c c2;*)
-        Vec.set ws_c j c2
+        ws_c.%[ j ] <- c2
       done;
     done;
   done;
@@ -575,18 +576,18 @@ let reloc_all (self:t) ~into : unit =
        let r = reason_var self v in
        if not (Cref.is_undef r) && (Clause.reloced self.ca r || locked self r) then (
          let r2 = Clause.reloc self.ca r ~into in
-         Vec.set self.var_reason (v:>int) r2;
+         self.var_reason.%[ (v:>int) ] <- r2;
        ))
     self.trail;
 
   (* All learnt: *)
   Vec.iteri
-    (fun i c -> Vec.set self.learnts i (Clause.reloc self.ca c ~into))
+    (fun i c -> self.learnts.%[ i ] <- Clause.reloc self.ca c ~into)
     self.learnts;
 
   (* All original: *)
   Vec.iteri
-    (fun i c -> Vec.set self.clauses i (Clause.reloc self.ca c ~into))
+    (fun i c -> self.clauses.%[ i ] <- Clause.reloc self.ca c ~into)
     self.clauses;
   ()
 
@@ -637,14 +638,14 @@ let reduce_db self : unit =
     self.cla_inc extra_lim (Vec.size self.learnts);*)
   let j = ref 0 in
   for i=0 to n-1 do
-    let c = Vec.get self.learnts i in
+    let c = self.learnts.%[ i ] in
     if Clause.size self.ca c > 2 && not (locked self c) &&
        (i < n / 2 || Clause.activity self.ca c < extra_lim) then (
       (*Printf.printf "remove clause c%d (size %d, act %.5f, cla-inc %.2f, idx %d/%d)\n"
         c (Clause.size self.ca c) (Clause.activity self.ca c) self.cla_inc i n;*)
       remove_clause self c;
     ) else (
-      Vec.set self.learnts !j c;
+      self.learnts.%[ !j ] <- c;
       j := !j + 1;
     )
   done;
@@ -675,14 +676,14 @@ let cla_bump_activity self (c:Cref.t) : unit =
   if act > 1e20 then (
     (* Rescale: *)
     for i=0 to Vec.size self.learnts-1 do
-      let c = Vec.get self.learnts i in
+      let c = self.learnts.%[ i ] in
       Clause.set_activity self.ca c (Clause.activity self.ca c *. 1e-20);
     done;
     self.cla_inc <- self.cla_inc *. 1e-20;
   )
 
-let[@inline] seen self (v:Var.t) : bool = Vec.get self.seen (v:>int)
-let[@inline] set_seen self (v:Var.t) b : unit = Vec.set self.seen (v:>int) b
+let[@inline] seen self (v:Var.t) : bool = self.seen.%[ (v:>int) ]
+let[@inline] set_seen self (v:Var.t) b : unit = self.seen.%[ (v:>int) ] <- b
 
 let[@inline] var_decay_activity self : unit =
   self.var_inc <- self.var_inc /. self.var_decay
@@ -716,7 +717,7 @@ let lit_redundant self (p:Lit.t) (ab_lvl:int) : bool =
             (* cannot be eliminated, not involved in conflict.
                restore to input state + return false. *)
             for j = top to Vec.size self.analyze_toclear-1 do
-              set_seen self (Lit.var (Vec.get self.analyze_toclear j)) false;
+              set_seen self (Lit.var self.analyze_toclear.%[ j ]) false;
             done;
             Vec.shrink self.analyze_toclear top;
             raise_notrace Early_return_false
@@ -774,13 +775,13 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
 
     (* next literal to consider *)
     while
-      let v = Lit.var (Vec.get self.trail !index) in
+      let v = Lit.var self.trail.%[ !index ] in
       index := !index -1;
       not (seen self v)
     do ()
     done;
 
-    p := Vec.get self.trail (!index+1);
+    p := self.trail.%[ !index+1 ];
     confl := reason_lit self !p;
     set_seen self (Lit.var !p) false;
     pathC := !pathC - 1;
@@ -789,7 +790,7 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
 
     if !pathC = 0 then continue := false;
   done;
-  Vec.set out_learnt 0 (Lit.not !p);
+  out_learnt.%[ 0 ] <- Lit.not !p;
 
   (* simplify conflict clause *)
   Vec.copy_to out_learnt ~into:self.analyze_toclear;
@@ -799,17 +800,17 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
     let ab_lvl =
       let lvl = ref 0 in
       for i=1 to Vec.size out_learnt-1 do
-        lvl:= !lvl lor abstract_level self (Lit.var (Vec.get out_learnt i));
+        lvl:= !lvl lor abstract_level self (Lit.var out_learnt.%[ i ]);
       done;
       !lvl
     in
 
     j := 1;
     for i = 1 to Vec.size out_learnt-1 do
-      let p = Vec.get out_learnt i in
+      let p = out_learnt.%[ i ] in
       if Cref.is_undef (reason_lit self p) || not (lit_redundant self p ab_lvl) then (
         (* decision lit, or not redundant: keep *)
-        Vec.set out_learnt !j p;
+        out_learnt.%[ !j ] <- p;
         j := !j + 1;
       )
     done;
@@ -838,15 +839,15 @@ let analyze (self:t) (confl:Cref.t) (out_learnt: Lit.t Vec.t) : int =
     let max_i = ref 1 in
     (* Find the first literal assigned at the next-highest level: *)
     for i = 2 to Vec.size out_learnt-1 do
-      if level_lit self (Vec.get out_learnt i) > level_lit self (Vec.get out_learnt !max_i) then (
+      if level_lit self out_learnt.%[ i ] > level_lit self out_learnt.%[ !max_i ] then (
         max_i := i;
       )
     done;
     (* Swap-in this literal at index 1: *)
-    let p = Vec.get out_learnt !max_i in
+    let p = out_learnt.%[ !max_i ] in
     if !max_i > 1 then (
-      Vec.set out_learnt !max_i (Vec.get out_learnt 1);
-      Vec.set out_learnt 1 p;
+      out_learnt.%[ !max_i ] <- out_learnt.%[ 1 ];
+      out_learnt.%[ 1 ] <- p;
     );
     level_lit self p
   )
@@ -862,8 +863,8 @@ let analyze_final self (p:Lit.t) (out_conflict: Lit.t Vec.t) : unit =
 
   if decision_level self > 0 then (
     set_seen self (Lit.var p) true;
-    for i = Vec.size self.trail-1 downto Vec.get self.trail_lim 0 do
-      let p = Vec.get self.trail i in
+    for i = Vec.size self.trail-1 downto self.trail_lim.%[ 0 ] do
+      let p = self.trail.%[ i ] in
       let x = Lit.var p in
       if seen self x then (
         let c = reason_var self x in
@@ -894,11 +895,11 @@ let satisfied self (c:Cref.t) : bool =
 let remove_satisfied self (cs:Cref.t Vec.t) : unit =
   let j = ref 0 in
   for i = 0 to Vec.size cs-1 do
-    let c = Vec.get cs i in
+    let c = cs.%[ i ] in
     if satisfied self c then (
       remove_clause self c
     ) else (
-      Vec.set cs !j c;
+      cs.%[ !j ] <- c;
       j := !j + 1;
     )
   done;
@@ -908,7 +909,7 @@ let rebuild_order_heap self : unit =
   let vs = Vec.make() in
   for v_i=0 to n_vars self-1 do
     let v = Var.Internal.of_int v_i in
-    if Vec.get self.decision v_i && Lbool.equal Lbool.undef (value_var self v)
+    if self.decision.%[ v_i ] && Lbool.equal Lbool.undef (value_var self v)
     then Vec.push vs v
   done;
   Heap.build self.order_heap vs
@@ -936,8 +937,8 @@ let progress_estimate self : float =
   let progress = ref 0. in
   let f = 1. /. float_of_int (n_vars self) in
   for i = 0 to decision_level self do
-    let beg = if i=0 then 0 else Vec.get self.trail_lim (i-1) in
-    let end_ = if i=decision_level self then Vec.size self.trail else Vec.get self.trail_lim i in
+    let beg = if i=0 then 0 else self.trail_lim.%[ i-1 ] in
+    let end_ = if i=decision_level self then Vec.size self.trail else self.trail_lim.%[ i ] in
     progress :=
       !progress +. (f ** (float_of_int i)) *. (float_of_int (end_ - beg));
   done;
@@ -976,13 +977,13 @@ let search self (nof_conflicts:int) : Lbool.t =
         (* propagate negation of UIP *)
         if Vec.size learnt_clause = 1 then (
           assert (backtrack_level=0);
-          unchecked_enqueue self (Vec.get learnt_clause 0) Cref.undef;
+          unchecked_enqueue self learnt_clause.%[ 0 ] Cref.undef;
         ) else (
           let c = Clause.Alloc.alloc self.ca learnt_clause ~learnt:true in
           Vec.push self.learnts c;
           attach_clause self c; (* can attach directly, 2 first lits are correct watches *)
           cla_bump_activity self c;
-          unchecked_enqueue self (Vec.get learnt_clause 0) c;
+          unchecked_enqueue self learnt_clause.%[ 0 ] c;
         );
 
         var_decay_activity self;
@@ -999,7 +1000,7 @@ let search self (nof_conflicts:int) : Lbool.t =
             Printf.printf "| %9d | %7d %8d %8d | %8d %8d %6.0f | %6.3f %% |\n%!"
               self.conflicts
               (self.dec_vars -
-               (if Vec.size self.trail_lim=0 then Vec.size self.trail else Vec.get self.trail_lim 0))
+               (if Vec.size self.trail_lim=0 then Vec.size self.trail else self.trail_lim.%[ 0 ]))
               (n_clauses self)
               self.clause_literals
               (i self.max_learnts)
@@ -1030,7 +1031,7 @@ let search self (nof_conflicts:int) : Lbool.t =
         let rec loop_add_assumps () =
           if decision_level self < Vec.size self.assumptions then (
             (* Perform user provided assumption: *)
-            let p = Vec.get self.assumptions (decision_level self) in
+            let p = self.assumptions.%[ decision_level self ] in
             let val_p = value_lit self p in
             if Lbool.equal Lbool.true_ val_p then (
               (* Dummy decision level *)
@@ -1143,7 +1144,7 @@ let solve_ (self:t) : Lbool.t =
       (* extend and copy model *)
       Vec.grow_to self.model (n_vars self) Lbool.undef;
       for i=0 to n_vars self-1 do
-        Vec.set self.model i (value_var self (Var.Internal.of_int i))
+        self.model.%[ i ] <- value_var self (Var.Internal.of_int i)
       done
     ) else if Lbool.equal Lbool.false_ status && Vec.size self.conflict = 0 then (
       (* empty clause, no assumptions involved *)
@@ -1168,8 +1169,7 @@ let create(): t =
   (* heap of variables, ordered by activity (higher activity comes first) *)
   let order_heap =
     Heap.make
-      ~less:(fun v1 v2 ->
-          Vec.get var_act (v1:>int) > Vec.get var_act (v2:>int))
+      ~less:(fun v1 v2 -> var_act.%[ (v1:>int) ] > var_act.%[ (v2:>int) ])
   in
   let s = {
     verbosity=0;
