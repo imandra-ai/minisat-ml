@@ -199,6 +199,9 @@ Msat seems to more often die of out-of-memory issues, which is not very surprisi
 as it was never optimized to tackle such challenging workloads — its purpose
 is to serve as a CDCL(T) backend, not a pure SAT solver.
 
+A [sample flamegraph](./perf.svg) obtained via
+`./src/scripts/profile.sh _build/default/src/bin/minisat.exe benchs/basic/3bitadd_31.cnf.gz`
+shows the hotspots of the OCaml code (the problem takes ~5.5s to solve).
 
 
 ## Notes
