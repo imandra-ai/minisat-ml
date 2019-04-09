@@ -96,6 +96,12 @@ performance gains.
 
 Some functions are annotated as `[@@inline]` to guide the optimizer better.
 
+#### Code size
+
+The whole of minisat-ml weights 1,901 lines of OCaml
+(according to David A. Wheeler's Sloccount). It implements only what's required
+for the default heuristics of Minisat 2.2 (e.g. full conflict minimization).
+
 ## Experimental results
 
 We compare solvers across a few benchmarks. The solver are:
@@ -113,39 +119,50 @@ and the benchmarks are:
 - [satcomp '18](http://sat2018.forsyte.tuwien.ac.at/)
 
 we ran these benchmarks on a machine with 20 cores 2.20GHz Intel Xeon CPUs,
-and 64GB of RAM.
+and 64GB of RAM. Each solver is limited to 2GB of memory.
+
+For each solver, we list the number of problems it solved, number of unknown,
+and the total and average time spent on solved problems. This is why
+sometimes a stronger solver has a higher average time, as it succeeds on some
+harder benchmarks that other solvers die on.
 
 ### Basic
 
-| prover | sat | unsat | solved | unknown |
-|---|---|---|---|---|
-| z3          | 2116 | 1103 |  3219 |  2 |
-| msat        | 2115 | 1097 |  3212 |  9 |
-| minisat-ml  | 2118 | 1096 |  3214 |  7 |
-| minisat     | 2118 | 1102 |  3220 |  1 |
-| batsat      | 2118 | 1102 |  3220 |  1 |
+30s timeout
+
+| prover | sat | unsat | solved | unknown | total-time | avg-time |
+|---|---|---|---|---|---|---|
+| z3          | 2116 | 1103 |  3219 |  2 | 1289.1s | 0.4s  |
+| msat        | 2115 | 1097 |  3212 |  9 | 1624.7s | 0.51s |
+| minisat-ml  | 2118 | 1096 |  3214 |  7 | 1580.8s | 0.49s |
+| minisat     | 2118 | 1102 |  3220 |  1 | 657.58s | 0.2s  |
+| batsat      | 2118 | 1102 |  3220 |  1 | 846.72s | 0.26s |
 
 ### Sat-race '06
 
-| prover | sat | unsat | solved | unknown |
-|---|---|---|---|---|
-| z3          | 30 | 43 |  73 |  27 |
-| msat        | 11 | 20 |  31 |   69 |
-| minisat-ml  | 28 | 33 |  61 |   39 |
-| minisat     | 39 | 41 |  80 |  20 |
-| batsat      | 38 | 41 |  79 |  21 |
+300s timeout
+
+| prover | sat | unsat | solved | unknown | total-time | avg-time |
+|---|---|---|---|---|---|---|
+| z3          | 30 | 43 |  73 |  27  | 5031.7s | 68.9s |
+| msat        | 11 | 20 |  31 |  69  | 1834.5s | 59.2s |
+| minisat-ml  | 28 | 33 |  61 |  39  | 3866.2s | 63.4s |
+| minisat     | 39 | 41 |  80 |  20  | 4092.6s | 51.2s |
+| batsat      | 38 | 41 |  79 |  21  | 4443.7s | 56.2s |
 
 ![graph](./bench-satrace06-2019-04-09T17:28.png)
 
 ### Sat-comp '18
 
-| prover | sat | unsat | solved | unknown |
-|---|---|---|---|---|
-| z3          | 44 | 21 | 65 |  335 |
-| msat        | 21 |  1 | 22 |  378 |
-| minisat-ml  | 23 |  2 | 25 |  375 |
-| minisat     | 37 |  8 | 45 |  355 |
-| batsat      | 34 |  8 | 42 |  358 |
+300s timeout
+
+| prover | sat | unsat | solved | unknown | total-time | avg-time |
+|---|---|---|---|---|---|---|
+| z3          | 44 | 21 | 65 |  335 | 6075.8s | 93.5s |
+| msat        | 21 |  1 | 22 |  378 | 1070.8s | 48.7s |
+| minisat-ml  | 23 |  2 | 25 |  375 | 1652.7s | 66.1s |
+| minisat     | 37 |  8 | 45 |  355 | 3799.9s | 84.4s |
+| batsat      | 34 |  8 | 42 |  358 | 3002.0s | 71.5s |
 
 ![graph](./bench-satcomp18-2019-04-08T21:17.png)
 
@@ -174,3 +191,7 @@ due to different floating point computations. At some point in non trivial
 problems, variable activities in the C++ and OCaml versions diverge slightly
 (after decay and renormalization, which involves a multiplication by `1e-20`),
 which leads to a different variable being picked as a decision.
+
+Msat seems to more often die of out-of-memory issues, which is not very surprising
+as it was never optimized to tackle such challenging workloads — its purpose
+is to serve as a CDCL(T) backend, not a pure SAT solver.

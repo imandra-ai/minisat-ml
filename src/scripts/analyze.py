@@ -23,15 +23,19 @@ def analyze_file(f, potential_errors=False, plot=None):
     unsat = {}
     unknown = {}
     error = {}
+    total_time = {}
     if potential_errors:
         quick_errors = []
     for row in table:
         for prover in provers:
             res = row[prover]
+            time = float(row[prover + '.time'])
             if res == 'unsat':
                 unsat[prover] = 1 + unsat.get(prover, 0)
+                total_time[prover] = time + total_time.get(prover,0)
             elif res == 'sat':
                 sat[prover] = 1 + sat.get(prover, 0)
+                total_time[prover] = time + total_time.get(prover,0)
             elif res == 'unknown':
                 unknown[prover] = 1 + unknown.get(prover, 0)
             elif res == 'error':
@@ -42,11 +46,14 @@ def analyze_file(f, potential_errors=False, plot=None):
             else:
                 print(f"unknown result for {prover} on {row}: {res}")
     for prover in provers:
+        n = sat.get(prover,0)+unsat.get(prover,0)
         print(f"{prover:{12}}: sat {sat.get(prover,0):6}" \
             f" | unsat {unsat.get(prover,0):6}" \
-            f" | solved {sat.get(prover,0)+unsat.get(prover,0):6}" \
+            f" | solved {n:6}" \
             f" | unknown {unknown.get(prover,0):6}" \
-            f" | error {error.get(prover,0):6}")
+            f" | error {error.get(prover,0):6}" \
+            f" | total-time {total_time.get(prover,0):{12.5}}s" \
+            f" | avg-time {0 if n==0 else total_time.get(prover,0)/n:{6.3}}s")
 
     if potential_errors:
         for (prover,filename,time) in quick_errors:
