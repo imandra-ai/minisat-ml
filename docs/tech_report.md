@@ -43,20 +43,20 @@ and functions.
 OCaml doesn't support `return` nor `continue`/`break` in loops,
 nor `do {} while()` loops.
 We had to rely on exceptions to emulate the former, and tail-recursive
-functions for the latter. Using OCaml 4.06 we can overload `.%{ }` and `.%{ } <-`
+functions for the latter. Using OCaml 4.06 we can overload `.%[ ]` and `.%[ ] <-`
 to emulate `operator[]` overloading.
 
 Compare this fragment of conflict analysis in OCaml and C++:
 
 ```ocaml
 while
-  let v = Lit.var self.trail.%{ !index } in
+  let v = Lit.var self.trail.%[ !index ] in
   index := !index -1;
   not (seen self v)
 do ()
 done;
 
-p := self.trail.%{ !index+1 };
+p := self.trail.%[ !index+1 ];
 confl := reason_lit self !p;
 set_seen self (Lit.var !p) false;
 pathC := !pathC - 1;
