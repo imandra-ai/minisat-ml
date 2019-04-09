@@ -3,7 +3,7 @@
 This is a technical report on an experiment we at [Imandra](https://imandra.ai)
 have led on the comparative performance of C++, rust, and OCaml for writing
 SAT solvers and similar computational logic programs. C++ is widely used
-and can deliver very high performance, but unsafe and sometimes unwieldy.
+and can deliver very high performance, but is unsafe and sometimes unwieldy.
 The goal of this experiment is to assess the practicality of using OCaml
 (or rust) to write satisfiability solvers.
 
@@ -126,6 +126,9 @@ and the total and average time spent on solved problems. This is why
 sometimes a stronger solver has a higher average time, as it succeeds on some
 harder benchmarks that other solvers die on.
 
+Raw results can be found in the [snapshots](../snapshots) directory;
+analysis was performed using [src/scripts/analyze.py](../src/scripts/analyze.py).
+
 ### Basic
 
 30s timeout
@@ -195,3 +198,9 @@ which leads to a different variable being picked as a decision.
 Msat seems to more often die of out-of-memory issues, which is not very surprising
 as it was never optimized to tackle such challenging workloads — its purpose
 is to serve as a CDCL(T) backend, not a pure SAT solver.
+
+
+
+## Notes
+
+the graphs were generated using [Alexey Ignatiev's mkplot](https://github.com/alexeyignatiev/mkplot) script.
