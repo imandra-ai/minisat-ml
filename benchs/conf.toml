@@ -1,5 +1,5 @@
 
-provers = [ "minisat-ml", "minisat", "msat", "z3" ]
+provers = [ "minisat-ml", "minisat", "msat", "z3", "batsat" ]
 
 [minisat-ml]
 
@@ -26,6 +26,14 @@ sat = "^sat$"
 unknown = "^unknown$"
 version = "4.8.4"
 
+[batsat]
+
+cmd = "batsat $file --cpu-lim $timeout"
+unsat = "s UNSATISFIABLE"
+sat = "s SATISFIABLE"
+unknown = "s INDETERMINATE"
+version = "0.0.2"
+
 [msat]
 
 cmd = "msat -time $timeout $file"
@@ -38,7 +46,7 @@ version = "0.8"
 
 timeout=30
 problems = ".*\\.cnf\\.*"
-provers = [ "minisat-ml", "minisat", "msat", "z3" ]
+provers = [ "minisat-ml", "minisat", "msat", "z3", "batsat" ]
 dir = [ "benchs/msat/" ]
 
 expect = "program:minisat"
@@ -47,7 +55,7 @@ expect = "program:minisat"
 
 timeout=30
 problems = ".*\\.cnf\\.*"
-provers = [ "minisat-ml", "minisat", "msat", "z3" ]
+provers = [ "minisat-ml", "minisat", "msat", "z3", "batsat" ]
 dir = [ "benchs/basic" ]
 
 expect = "unknown"
@@ -57,7 +65,7 @@ expect = "unknown"
 timeout=300
 memory = 5000
 problems = ".*\\.cnf\\.*"
-provers = [ "minisat-ml", "minisat", "msat", "z3" ]
+provers = [ "minisat-ml", "minisat", "msat", "z3", "batsat" ]
 dir = [ "benchs/sat_race_2006/" ]
 
 expect = "unknown"
@@ -67,7 +75,7 @@ expect = "unknown"
 timeout=300
 memory = 5000
 problems = ".*\\.cnf\\.*"
-provers = [ "minisat-ml", "minisat", "msat", "z3" ]
+provers = [ "minisat-ml", "minisat", "msat", "z3", "batsat" ]
 dir = [ "benchs/satcomp-18/" ]
 
 expect = "unknown"
