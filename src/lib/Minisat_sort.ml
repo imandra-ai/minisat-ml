@@ -1,5 +1,9 @@
+(* Minisat-ml, adapted from Minisat by Simon Cruanes <simon@imandra.ai>
+   Copyright (c) 2019-2019, Aesthetic Integration (https://imandra.ai)
+*)
+
 (*
-Copyright (c) 2003-2007, Niklas Een, Niklas Sorensson
+Copyright (c) 2003-2006, Niklas Een, Niklas Sorensson
 Copyright (c) 2007-2010, Niklas Sorensson
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
@@ -16,8 +20,8 @@ NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPO
 NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*)
-
+**************************************************************************************************/
+ *)
 
 let[@specialise] selection_sort ~less a offset ~len : unit =
   assert (offset+len <= Array.length a);
