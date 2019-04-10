@@ -18,9 +18,9 @@ its parametrization over a theory, and some internal refactorings.
 We also compare with [Z3 4.8.4](https://github.com/Z3Prover/z3/releases/tag/z3-4.8.4)
 and [msat](https://github.com/Gbury/mSAT/). Z3 is an alternative SMT and SAT
 solver in C++. Msat is an OCaml SAT solver that is roughly inspired from Minisat
-but has significant implementations differences, is functorized over a theory,
-and doesn't have the same heuristics parameters.
-As an OCaml codebase, its style is more idiomatic and generally, more readable
+but has significant implementation differences, is functorized over a theory,
+and doesn't have the same heuristic parameters.
+As an OCaml codebase, its style is more idiomatic and generally more readable
 than Minisat-ml.
 
 ## Implementation of Minisat-ml
@@ -81,7 +81,7 @@ for watch lists (where the C++ version stores `struct Watcher(uint32,uint32)`
 in a single vector, we have two `int Vec.t` of the same size to avoid allocating
 lots of small records).
 
-32 bits integers are replaced by 63 bits integers (on x86_64) since OCaml
+32-bit integers are replaced by 63-bit integers (on x86_64) since OCaml
 only has word-sized values. Essentially, in Minisat-ml, almost everything is
 a `int Vec.t` or a `foo Vec.t` where `type foo = private int` (e.g. variables
 or literals or the ternary `Lbool.t`).
@@ -170,13 +170,13 @@ analysis was performed using [src/scripts/analyze.py](../src/scripts/analyze.py)
 
 ## Discussion
 
-The differences in performance can be explain by at least these factors:
+The differences in performance can be explained by at least these factors:
 
 - the write barrier, which isn't easy to elide since we use a polymorphic `'a Vec.t`
   for convenience. Specializing `Vec.t` on immediate/non-immediate types would
   certainly help here.
-- more cache misses (since all data in OCaml is stored as 64-bits words on x86_64,
-  whereas minisat uses more compact 32-bits integers everywhere)
+- more cache misses (since all data in OCaml is stored as 64-bit words on x86_64,
+  whereas minisat uses more compact 32-bit integers everywhere)
 - array bound checking (although we use `unsafe_get` and `unsafe_set` quite a lot)
 - more arithmetic for accessing slices in the clause allocator: to get
   the `i`-th literal of a clause, we access `alloc.memory.(c + 1 + i)`.
