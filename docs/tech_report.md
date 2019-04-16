@@ -168,6 +168,39 @@ analysis was performed using [src/scripts/analyze.py](../src/scripts/analyze.py)
 
 ![graph](./bench-satcomp18-2019-04-08T21:17.png)
 
+### Global evaluation (courtesy of Mathias Fleury)
+
+[Mathias Fleury](https://www.mpi-inf.mpg.de/departments/automation-of-logic/people/mathias-fleury/)
+has run a variety of SAT solvers on 3313 preprocessed problems
+from SAT-comp 2009 to 2017. He ran the benchs on the MPI cluster
+with 30 minute timeout and 10GB RAM per solver.
+
+| prover | sat | unsat | solved | unknown | total-time | avg-time |
+|---|---|---|---|---|---|---|
+| isasat      | 371 |  315 |   686 | 2083 | 216087.0s |  314.996s |
+| versat      | 198 |  144 |   342 | 2427 |  69745.0s |  203.933s |
+| minisat     | 683 |  722 |  1405 | 1364 | 458533.0s |  326.358s |
+| microsat    | 448 |  373 |   821 | 1948 | 226881.0s |  276.347s |
+| cadical     | 512 |  481 |   993 | 1773 | 269024.8s |  270.921s |
+| glucose     | 617 |  708 |  1325 | 1444 | 386293.0s |  291.542s |
+| minisatml   | 541 |  409 |   950 | 1819 | 299271.0s |  315.022s |
+| zchaff      | 311 |  239 |   550 | 2219 | 143485.0s |  260.882s |
+| cms         | 683 |  722 |  1405 | 1364 | 458533.0s |  326.358s |
+
+![graph](./minisatml_comp.png)
+
+The solvers are:
+
+- [isasat](https://link.springer.com/article/10.1007/s10817-018-9455-7) verified SAT solver extracted from Isabelle, in SML
+- [versat](https://link.springer.com/chapter/10.1007/978-3-642-27940-9_24) a verified SAT solver
+- minisat
+- [microsat](https://github.com/marijnheule/microsat/) a tiny SAT solver in 200 lines of C
+- [cadical](https://github.com/arminbiere/cadical/) a modern SAT solver
+- [glucose](http://www.labri.fr/perso/lsimon/glucose/) a classic fork of minisat
+- minisat-ml, the current work
+- [zchaff](https://www.princeton.edu/~chaff/zchaff.html) one of the first advanced CDCL solvers
+- [cms (cryptominisat)](https://github.com/msoos/cryptominisat) an advanced SAT solver
+
 ## Discussion
 
 The differences in performance can be explained by at least these factors:
