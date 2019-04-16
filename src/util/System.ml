@@ -22,21 +22,19 @@ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 *)
 
+let[@inline] cpu_time () : float = Sys.time ()
 
+let file_read_stat = Printf.sprintf "/proc/%d/statm" (Unix.getpid ())
 
-let[@inline] cpu_time () : float = Sys.time()
-
-let file_read_stat = Printf.sprintf "/proc/%d/statm" (Unix.getpid())
-
-let mem_read_stat (field:int) : int =
+let mem_read_stat (field : int) : int =
   let field = ref field in
   let res = ref 0 in
   try
     let ic = open_in_bin file_read_stat in
     let b = Scanf.Scanning.from_channel ic in
     while !field >= 0 do
-      Scanf.bscanf b "%d" (fun v->res := v);
-      decr field;
+      Scanf.bscanf b "%d" (fun v -> res := v);
+      decr field
     done;
     close_in ic;
     !res
@@ -44,10 +42,10 @@ let mem_read_stat (field:int) : int =
     print_endline ("unable to read memory stats: " ^ Printexc.to_string e);
     0
 
-let file_read_peak = Printf.sprintf "/proc/%d/status" (Unix.getpid())
+let file_read_peak = Printf.sprintf "/proc/%d/status" (Unix.getpid ())
 
-let mem_read_peak () : int =
-  0
+let mem_read_peak () : int = 0
+
 (* FIXME
   let res = ref 0 in
   try
@@ -74,8 +72,8 @@ external getpagesize : =
 let getpagesize () = 4_096
 
 let mem_used () : float =
-  (float_of_int (mem_read_stat 0 * getpagesize())) /. (1024. *. 1024.)
-    
+  float_of_int (mem_read_stat 0 * getpagesize ()) /. (1024. *. 1024.)
+
 let mem_used_peak () : float =
   let peak = float_of_int (mem_read_peak ()) /. 1024. in
-  if peak = 0. then mem_used() else peak
+  if peak = 0. then mem_used () else peak

@@ -32,29 +32,43 @@ val create : unit -> t
 val set_verbosity : t -> int -> unit
 
 val new_var : t -> Var.t
+
 val new_var' : ?polarity:bool -> ?decision:bool -> t -> Var.t
 
 val add_clause : t -> Lit.t Vec.t -> bool
+
 val add_empty_clause : t -> unit
 
 val ok : t -> bool
 
 val n_assigns : t -> int
+
 val n_clauses : t -> int
+
 val n_learnts : t -> int
+
 val n_vars : t -> int
+
 val n_free_vars : t -> int
+
 val n_starts : t -> int
+
 val n_conflicts : t -> int
+
 val n_propagations : t -> int
+
 val n_decisions : t -> int
+
 val n_rnd_decisions : t -> int
+
 val n_tot_literals : t -> int
+
 val n_max_literals : t -> int
 
 val simplify : t -> bool
 
 val solve : t -> assumps:Lit.t Vec.t -> bool
+
 val solve_limited : t -> assumps:Lit.t Vec.t -> Lbool.t
 
 val set_ccmin_mode : t -> int -> unit
@@ -63,6 +77,7 @@ val set_decision_var : t -> Var.t -> bool -> unit
 (** Set whether the variable is a eligible for decisions *)
 
 val value_var : t -> Var.t -> Lbool.t
+
 val value_lit : t -> Lit.t -> Lbool.t
 
 (* TODO
