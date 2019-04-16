@@ -16,6 +16,9 @@ dev: build test
 watch:
 	@dune build @all -w $(FLAGS)
 
+fmt:
+	@ocamlformat -i $(shell find src -name '*.ml' -or -name '*.mli')
+
 DATE=$(shell date +%FT%H:%M)
 TEST_OPTS?= -j $(J) --junit test.xml --progress
 

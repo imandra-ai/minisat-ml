@@ -1,0 +1,4 @@
+profile=conventional
+type-decl=sparse
+parens-tuple=multi-line-only
+parens-ite
