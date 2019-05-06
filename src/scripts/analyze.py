@@ -25,7 +25,7 @@ def analyze_file(f, potential_errors=False, plot=None, mfleury=False):
     else:
         time_suffix = '.time'
         res_suffix = ''
-        provers = [x for x in table[0].keys() if ".time" not in x and x != "problem"]
+        provers = [x for x in table[0].keys() if ".time" not in x and x != "problem" and x != "status"]
     print(f"provers: {provers}")
     sat = {}
     unsat = {}
