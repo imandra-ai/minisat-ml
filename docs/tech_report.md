@@ -208,6 +208,7 @@ The solvers are:
 This time with more recent versions of glucose and Cadical:
 
 | prover      |  sat | unsat | solved | unknown | total-time | avg-time |
+|---|---|---|---|---|---|---|
 | isasat      |  371 |  315  |    686 |    2083 | 216087.0s  | 314.996s | 
 | versat      |  198 |  144  |    342 |    2427 |  69745.0s  | 203.933s |
 | minisat     |  617 |  509  |   1126 |    1643 | 324602.0s  | 288.279s |
