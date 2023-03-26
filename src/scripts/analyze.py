@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-import sys, csv, argparse, os
+import sys, csv, argparse, os, typing
 
-def read_csv(f):
+def read_csv(f: str) -> typing.List[dict]:
     with open(f) as fd:
         content = fd.readlines()
     return list(csv.DictReader(content)) 
 
-def analyze_file(f, potential_errors=False, plot=None, mfleury=False):
+def analyze_file(f:str, potential_errors=False, plot=None, mfleury=False):
     """Analyze result file {f} (which should be a .csv file).
     
     Print per-solver analysis, and errors which happen quickly (true errors, not timeouts).
@@ -27,11 +27,11 @@ def analyze_file(f, potential_errors=False, plot=None, mfleury=False):
         res_suffix = ''
         provers = [x for x in table[0].keys() if ".time" not in x and x != "problem" and x != "status"]
     print(f"provers: {provers}")
-    sat = {}
-    unsat = {}
-    unknown = {}
-    error = {}
-    total_time = {}
+    sat: typing.Dict = {}
+    unsat: typing.Dict = {}
+    unknown: typing.Dict = {}
+    error: typing.Dict = {}
+    total_time: typing.Dict = {}
     if potential_errors:
         quick_errors = []
     for row in table:
@@ -71,7 +71,7 @@ def analyze_file(f, potential_errors=False, plot=None, mfleury=False):
         print(f"plotting into {plot}…")
         import tempfile, json, subprocess
         with tempfile.TemporaryDirectory(prefix='analyze') as tmpdir:
-            json_files = []
+            json_files: typing.List[str] = []
             # produce json files
             for prover in provers:
                 filename = os.path.join(tmpdir, prover + '.json')
@@ -90,7 +90,7 @@ def analyze_file(f, potential_errors=False, plot=None, mfleury=False):
             subprocess.call(["mkplot.py", "--save-to="+plot, "-b", "png"] + json_files)
 
 
-def main(files, **kwargs) -> ():
+def main(files, **kwargs) -> None:
     for f in files:
         analyze_file(f, **kwargs)
 
